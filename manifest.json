@@ -1,0 +1,10 @@
+{
+  "id": "track-changes",
+  "name": "Track Changes",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Review CriticMarkup suggestions from an AI (or any external editor) in a side panel. Accept, reject, or reply.",
+  "author": "philphilphil",
+  "authorUrl": "https://github.com/philphilphil",
+  "isDesktopOnly": false
+}

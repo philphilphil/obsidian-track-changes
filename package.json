@@ -1,0 +1,29 @@
+{
+  "name": "obsidian-track-changes",
+  "version": "0.1.0",
+  "description": "Review CriticMarkup suggestions from an AI (or any external editor) in a side panel.",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/philphilphil/obsidian-track-changes.git"
+  },
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "test": "node test/parser.test.mjs && node test/parser.edge.test.mjs && node test/operations.test.mjs && node test/finalize.test.mjs && node test/rebase.test.mjs"
+  },
+  "keywords": [],
+  "author": "Phil",
+  "license": "MIT",
+  "devDependencies": {
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "^6.26.3",
+    "@types/node": "^20.11.30",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.2",
+    "obsidian": "latest",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.3"
+  }
+}

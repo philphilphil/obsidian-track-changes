@@ -1,0 +1,346 @@
+/* KISS CriticMarkup — styles
+ *
+ * Conventions:
+ *  - `kcm-` prefix on every class to avoid clashes.
+ *  - Colors use Obsidian CSS variables where possible so themes drive them.
+ *  - Inline rendering must be visually quiet enough to read prose around it.
+ */
+
+/* ---------- Inline (editor / live preview) ---------- */
+
+.kcm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  margin: 0 2px;
+  border-radius: 10px;
+  font-size: 0.78em;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: baseline;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  max-width: 22em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kcm-chip:hover {
+  background: var(--background-modifier-hover);
+}
+.kcm-chip-ai {
+  border-color: rgba(124, 92, 255, 0.4);
+  background: rgba(124, 92, 255, 0.08);
+}
+.kcm-chip-human {
+  border-color: rgba(0, 122, 204, 0.4);
+  background: rgba(0, 122, 204, 0.08);
+}
+.kcm-chip-icon {
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+.kcm-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kcm-chip-badge {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  font-size: 0.85em;
+  padding: 0 5px;
+  margin-left: 2px;
+}
+
+.kcm-addition {
+  background: rgba(56, 161, 105, 0.12);
+  border-bottom: 1px solid rgba(56, 161, 105, 0.6);
+}
+.kcm-deletion {
+  background: rgba(220, 38, 38, 0.08);
+  text-decoration: line-through;
+  text-decoration-color: rgba(220, 38, 38, 0.6);
+}
+.kcm-sub-old {
+  text-decoration: line-through;
+  text-decoration-color: rgba(220, 38, 38, 0.6);
+  background: rgba(220, 38, 38, 0.06);
+}
+.kcm-sub-new {
+  background: rgba(56, 161, 105, 0.12);
+  border-bottom: 1px solid rgba(56, 161, 105, 0.6);
+}
+.kcm-highlight {
+  background: rgba(252, 211, 77, 0.35);
+}
+
+.kcm-editor-flash {
+  animation: kcm-editor-flash 0.7s ease-out;
+}
+@keyframes kcm-editor-flash {
+  0% { background-color: rgba(252, 211, 77, 0.3); }
+  100% { background-color: transparent; }
+}
+
+/* ---------- Right panel ---------- */
+
+.kcm-panel {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kcm-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.kcm-header {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 8px;
+}
+.kcm-header-title {
+  font-weight: 600;
+  font-size: 1.05em;
+}
+.kcm-header-counts {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.kcm-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kcm-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--background-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.kcm-card:hover {
+  border-color: var(--interactive-accent);
+}
+.kcm-card-flash {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+.kcm-anchor {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  border-left: 2px solid var(--background-modifier-border);
+  padding-left: 8px;
+}
+.kcm-anchor-quote {
+  font-style: italic;
+}
+
+.kcm-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kcm-message {
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--background-secondary);
+}
+.kcm-message-ai {
+  background: rgba(124, 92, 255, 0.08);
+  border-left: 3px solid rgba(124, 92, 255, 0.5);
+}
+.kcm-message-human {
+  background: rgba(0, 122, 204, 0.08);
+  border-left: 3px solid rgba(0, 122, 204, 0.5);
+}
+.kcm-message-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.kcm-message-author {
+  font-weight: 600;
+}
+.kcm-message-body {
+  font-size: 0.92em;
+}
+.kcm-message-body p {
+  margin: 0.25em 0;
+}
+.kcm-message-body p:first-child {
+  margin-top: 0;
+}
+.kcm-message-body p:last-child {
+  margin-bottom: 0;
+}
+
+.kcm-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.kcm-icon-btn:hover {
+  color: var(--text-error);
+  background: var(--background-modifier-hover);
+}
+
+.kcm-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kcm-reply-input {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 0.92em;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.kcm-reply-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+.kcm-reply-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.kcm-btn-primary,
+.kcm-btn-accept {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.kcm-btn-primary:hover,
+.kcm-btn-accept:hover {
+  background: var(--interactive-accent-hover);
+}
+.kcm-btn-reject,
+.kcm-btn-danger {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.kcm-btn-reject:hover,
+.kcm-btn-danger:hover {
+  border-color: var(--text-error);
+  color: var(--text-error);
+}
+
+.kcm-card-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* Diff blocks */
+.kcm-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.92em;
+}
+.kcm-diff-label {
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.kcm-diff-added {
+  background: rgba(56, 161, 105, 0.12);
+  border-left: 3px solid rgba(56, 161, 105, 0.6);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.kcm-diff-removed {
+  background: rgba(220, 38, 38, 0.08);
+  border-left: 3px solid rgba(220, 38, 38, 0.5);
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-decoration: line-through;
+  text-decoration-color: rgba(220, 38, 38, 0.4);
+}
+.kcm-diff-arrow {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  text-align: center;
+}
+
+/* ---------- Reading mode ---------- */
+
+.kcm-rm-comment {
+  display: inline-block;
+  font-size: 0.85em;
+  margin: 0 1px;
+  color: var(--text-muted);
+  cursor: help;
+}
+.kcm-rm-comment-ai {
+  color: rgba(124, 92, 255, 0.85);
+}
+.kcm-rm-comment-human {
+  color: rgba(0, 122, 204, 0.85);
+}
+.kcm-rm-addition {
+  background: rgba(56, 161, 105, 0.12);
+  border-bottom: 1px solid rgba(56, 161, 105, 0.5);
+}
+.kcm-rm-deletion {
+  background: rgba(220, 38, 38, 0.08);
+  text-decoration: line-through;
+}
+.kcm-rm-substitution {
+  display: inline;
+}
+.kcm-rm-highlight {
+  background: rgba(252, 211, 77, 0.35);
+}
+
+/* ---------- Finalize modal ---------- */
+
+.kcm-finalize-modal .kcm-finalize-summary {
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+.kcm-finalize-modal .kcm-finalize-summary ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.kcm-finalize-modal .kcm-finalize-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
