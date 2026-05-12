@@ -22,7 +22,6 @@ import {
 
 import {
   parse,
-  contextSnippet,
   type CommentNode,
   type AdditionNode,
   type DeletionNode,
@@ -64,6 +63,10 @@ export class ReviewPanelView extends ItemView {
   private rerender = debounce(() => this.refresh(), 200, true);
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
   private markdownChildren: Component[] = [];
+  // Bumped on every refresh() entry. Lets an in-flight refresh detect that a
+  // newer one started while it was awaiting the file read, and bail before
+  // touching the DOM — otherwise overlapping refreshes append duplicate cards.
+  private refreshSeq = 0;
 
   constructor(leaf: WorkspaceLeaf, host: PanelHost) {
     super(leaf);
@@ -123,11 +126,12 @@ export class ReviewPanelView extends ItemView {
   }
 
   private async refresh(): Promise<void> {
+    const seq = ++this.refreshSeq;
     const file = this.currentFile;
-    this.disposeMarkdownChildren();
-    this.contentEl.empty();
 
     if (!file) {
+      this.disposeMarkdownChildren();
+      this.contentEl.empty();
       this.contentEl.createEl("p", {
         cls: "kcm-empty",
         text: "Open a markdown file to review its comments and suggestions.",
@@ -139,11 +143,19 @@ export class ReviewPanelView extends ItemView {
     try {
       source = await this.app.vault.read(file);
     } catch {
+      if (seq !== this.refreshSeq) return;
+      this.disposeMarkdownChildren();
+      this.contentEl.empty();
       this.contentEl.createEl("p", { cls: "kcm-empty", text: "Could not read file." });
       return;
     }
+    if (seq !== this.refreshSeq) return;
+
     this.currentSource = source;
     const parsed = parse(source, { aiPrefix: this.host.getAiPrefix() });
+
+    this.disposeMarkdownChildren();
+    this.contentEl.empty();
 
     this.renderHeader(file, parsed);
 
@@ -160,13 +172,15 @@ export class ReviewPanelView extends ItemView {
     // Emit cards in document order. One card per thread (rooted at root
     // index); one card per non-comment node.
     const seenThreads = new Set<number>();
+    let threadNumber = 0;
     for (let i = 0; i < parsed.nodes.length; i++) {
       const n = parsed.nodes[i];
       if (n.kind === "comment") {
         const tIdx = parsed.nodeThread[i];
         if (seenThreads.has(tIdx)) continue;
         seenThreads.add(tIdx);
-        this.renderThreadCard(list, file, source, parsed, parsed.threads[tIdx]);
+        threadNumber++;
+        this.renderThreadCard(list, file, source, parsed, parsed.threads[tIdx], threadNumber);
       } else if (n.kind === "addition") {
         this.renderAdditionCard(list, file, source, n);
       } else if (n.kind === "deletion") {
@@ -199,6 +213,7 @@ export class ReviewPanelView extends ItemView {
     source: string,
     parsed: ParseResult,
     thread: Thread,
+    threadNumber: number,
   ): void {
     const card = list.createDiv({ cls: "kcm-card kcm-card-thread" });
     card.setAttr("data-kcm-card-offset", String(thread.from));
@@ -210,7 +225,7 @@ export class ReviewPanelView extends ItemView {
       this.host.revealOffset(file, thread.from, thread.to - thread.from);
     });
 
-    this.renderAnchor(card, source, thread.from, thread.to);
+    this.renderLineRef(card, source, thread.from, `#${threadNumber}`);
 
     const messages = card.createDiv({ cls: "kcm-messages" });
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
@@ -269,11 +284,6 @@ export class ReviewPanelView extends ItemView {
     });
   }
 
-  private renderAnchor(card: HTMLElement, source: string, from: number, to: number): void {
-    const anchor = card.createDiv({ cls: "kcm-anchor" });
-    anchor.createSpan({ cls: "kcm-anchor-quote", text: contextSnippet(source, from, to, 60) });
-  }
-
   private renderAdditionCard(
     list: HTMLElement,
     file: TFile,
@@ -287,7 +297,7 @@ export class ReviewPanelView extends ItemView {
       if (target.closest("button")) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
-    this.renderAnchor(card, source, n.from, n.to);
+    this.renderLineRef(card, source, n.from);
     const diff = card.createDiv({ cls: "kcm-diff" });
     diff.createSpan({ cls: "kcm-diff-label", text: "Insert" });
     const added = diff.createDiv({ cls: "kcm-diff-added" });
@@ -313,7 +323,7 @@ export class ReviewPanelView extends ItemView {
       if (target.closest("button")) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
-    this.renderAnchor(card, source, n.from, n.to);
+    this.renderLineRef(card, source, n.from);
     const diff = card.createDiv({ cls: "kcm-diff" });
     diff.createSpan({ cls: "kcm-diff-label", text: "Delete" });
     const removed = diff.createDiv({ cls: "kcm-diff-removed" });
@@ -339,7 +349,7 @@ export class ReviewPanelView extends ItemView {
       if (target.closest("button")) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
-    this.renderAnchor(card, source, n.from, n.to);
+    this.renderLineRef(card, source, n.from);
     const diff = card.createDiv({ cls: "kcm-diff" });
     diff.createSpan({ cls: "kcm-diff-label", text: "Replace" });
     const removed = diff.createDiv({ cls: "kcm-diff-removed" });
@@ -371,6 +381,20 @@ export class ReviewPanelView extends ItemView {
     rejectBtn.addEventListener("click", async () => {
       await this.host.applyEdits(file, [reject()]);
     });
+  }
+
+  private renderLineRef(
+    card: HTMLElement,
+    source: string,
+    offset: number,
+    prefix?: string,
+  ): void {
+    let line = 1;
+    for (let i = 0; i < offset && i < source.length; i++) {
+      if (source.charCodeAt(i) === 10) line++;
+    }
+    const text = prefix ? `${prefix} · Line ${line}` : `Line ${line}`;
+    card.createDiv({ cls: "kcm-line-ref", text });
   }
 
   private renderMarkdownInto(el: HTMLElement, text: string, sourcePath: string): void {

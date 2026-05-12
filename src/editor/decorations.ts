@@ -2,7 +2,8 @@
 //
 // Behaviour:
 //   - Comment threads become a single chip (Decoration.replace) showing the
-//     root preview and a message count badge. Clicking opens the side panel.
+//     thread number (matches the side panel) and a message count badge.
+//     Hovering shows the full text of the thread; clicking opens the panel.
 //   - Additions/deletions/substitutions: wrapper syntax is hidden (replace
 //     empty) and the inner content gets a class (mark). Substitutions show
 //     old (strike) followed by new (underline).
@@ -27,11 +28,12 @@ export interface DecorationCallbacks {
 
 class ThreadChipWidget extends WidgetType {
   constructor(
-    readonly preview: string,
+    readonly index: number,
     readonly count: number,
     readonly author: "ai" | "human",
     readonly label: string,
     readonly offset: number,
+    readonly tooltip: string,
     readonly onClick: (offset: number) => void,
   ) {
     super();
@@ -39,11 +41,12 @@ class ThreadChipWidget extends WidgetType {
 
   eq(other: ThreadChipWidget): boolean {
     return (
-      other.preview === this.preview &&
+      other.index === this.index &&
       other.count === this.count &&
       other.author === this.author &&
       other.label === this.label &&
-      other.offset === this.offset
+      other.offset === this.offset &&
+      other.tooltip === this.tooltip
     );
   }
 
@@ -51,12 +54,13 @@ class ThreadChipWidget extends WidgetType {
     const chip = document.createElement("span");
     chip.className = `kcm-chip kcm-chip-${this.author}`;
     chip.setAttr("role", "button");
-    chip.setAttr("aria-label", "Open comment in panel");
+    chip.setAttr("aria-label", `Open comment #${this.index} in panel`);
+    chip.setAttr("title", this.tooltip);
 
     const icon = chip.createSpan({ cls: "kcm-chip-icon" });
     icon.setText(this.author === "ai" ? this.label : "💬");
 
-    chip.createSpan({ cls: "kcm-chip-text", text: this.preview });
+    chip.createSpan({ cls: "kcm-chip-num", text: `#${this.index}` });
 
     if (this.count > 1) {
       chip.createSpan({ cls: "kcm-chip-badge", text: String(this.count) });
@@ -75,12 +79,12 @@ class ThreadChipWidget extends WidgetType {
   }
 }
 
-const PREVIEW_MAX = 28;
-
-function previewText(c: CommentNode): string {
-  const t = c.text.trim().replace(/\s+/g, " ");
-  if (t.length <= PREVIEW_MAX) return t;
-  return t.slice(0, PREVIEW_MAX - 1).trimEnd() + "…";
+function threadTooltip(thread: Thread, nodes: CriticNode[], aiPrefix: string): string {
+  const ids = [thread.rootIndex, ...thread.replyIndexes];
+  return ids
+    .map((i) => nodes[i] as CommentNode)
+    .map((c) => `${c.author === "ai" ? aiPrefix : "You"}: ${c.text.trim()}`)
+    .join("\n\n");
 }
 
 function rangeTouchesSelection(view: EditorView, from: number, to: number): boolean {
@@ -122,18 +126,21 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
     return af - bf;
   });
 
+  let threadIndex = 0;
   for (const item of items) {
     if (item.kind === "thread") {
       const t = item.thread;
+      threadIndex++;
       if (rangeTouchesSelection(view, t.from, t.to)) continue;
       const root = parsed.nodes[t.rootIndex] as CommentNode;
       const count = 1 + t.replyIndexes.length;
       const widget = new ThreadChipWidget(
-        previewText(root),
+        threadIndex,
         count,
         root.author,
         aiPrefix,
         t.from,
+        threadTooltip(t, parsed.nodes, aiPrefix),
         callbacks.onClick,
       );
       builder.add(

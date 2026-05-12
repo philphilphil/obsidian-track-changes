@@ -220,8 +220,11 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
     if (prevCommentIdx >= 0 && currentThread) {
       const prev = accepted[prevCommentIdx] as CommentNode;
       const gap = source.slice(prev.to, n.from);
-      if (!/\n/.test(gap)) {
-        // adjacent — append as reply
+      // Adjacent = only inline whitespace (spaces/tabs) between the two
+      // markers. Any prose or newline between them means it's a separate
+      // comment, not a reply — otherwise the live-preview chip widget would
+      // replace the prose range and visually swallow the text.
+      if (/^[ \t]*$/.test(gap)) {
         currentThread.replyIndexes.push(i);
         currentThread.to = n.to;
         nodeThread[i] = threads.length - 1;

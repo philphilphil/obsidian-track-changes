@@ -233,10 +233,6 @@ export default class KissCriticMarkupPlugin extends Plugin {
         scrollIntoView: true,
         effects: EditorView.scrollIntoView(offset, { y: "center" }),
       });
-      // Brief flash on the editor element.
-      const el = cm.dom;
-      el.addClass("kcm-editor-flash");
-      window.setTimeout(() => el.removeClass("kcm-editor-flash"), 700);
       return;
     }
     const from = editor.offsetToPos(offset);

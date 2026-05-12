@@ -82,6 +82,16 @@ test("inline whitespace between adjacent comments still threads", () => {
   assert.equal(r.threads[0].replyIndexes.length, 1);
 });
 
+test("comments separated by prose on the same line are separate threads", () => {
+  // Regression: previously the heuristic only forbade newlines in the gap,
+  // so two comments on the same paragraph-line with prose between them
+  // merged into one thread and the inline chip swallowed the prose.
+  const r = parse("foo {>>Claude: a<<} bar baz {>>Claude: b<<} qux");
+  assert.equal(r.threads.length, 2);
+  assert.equal(r.threads[0].replyIndexes.length, 0);
+  assert.equal(r.threads[1].replyIndexes.length, 0);
+});
+
 test("parses addition", () => {
   const r = parse("x {++hello++} y");
   assert.equal(r.nodes.length, 1);

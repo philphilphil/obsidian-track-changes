@@ -23,10 +23,7 @@
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
-  max-width: 22em;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .kcm-chip:hover {
   background: var(--background-modifier-hover);
@@ -45,9 +42,10 @@
   letter-spacing: 0.04em;
   opacity: 0.75;
 }
-.kcm-chip-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.kcm-chip-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 .kcm-chip-badge {
   background: var(--background-modifier-border);
@@ -78,14 +76,6 @@
 }
 .kcm-highlight {
   background: rgba(252, 211, 77, 0.35);
-}
-
-.kcm-editor-flash {
-  animation: kcm-editor-flash 0.7s ease-out;
-}
-@keyframes kcm-editor-flash {
-  0% { background-color: rgba(252, 211, 77, 0.3); }
-  100% { background-color: transparent; }
 }
 
 /* ---------- Right panel ---------- */
@@ -135,16 +125,12 @@
 .kcm-card-flash {
   box-shadow: 0 0 0 2px var(--interactive-accent);
 }
-.kcm-anchor {
-  font-size: 0.8em;
+.kcm-line-ref {
+  font-size: 0.75em;
   color: var(--text-muted);
-  border-left: 2px solid var(--background-modifier-border);
-  padding-left: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
-.kcm-anchor-quote {
-  font-style: italic;
-}
-
 .kcm-messages {
   display: flex;
   flex-direction: column;
