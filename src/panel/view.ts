@@ -30,6 +30,7 @@ import {
   type Thread,
   type ParseResult,
 } from "../parser";
+import { authorHueIndex } from "../authors";
 import {
   acceptAddition,
   acceptDeletion,
@@ -54,8 +55,6 @@ export interface PanelHost {
   applyEdits(file: TFile, edits: SourceEdit[]): Promise<void>;
   /** Scroll the editor to a source offset and flash a highlight. */
   revealOffset(file: TFile, offset: number, length: number): void;
-  /** Configured AI-author prefix. Used both for parsing and for the display label. */
-  getAiPrefix(): string;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -177,7 +176,7 @@ export class ReviewPanelView extends ItemView {
     }
 
     this.currentSource = source;
-    const parsed = parse(source, { aiPrefix: this.host.getAiPrefix() });
+    const parsed = parse(source);
 
     this.disposeMarkdownChildren();
     this.contentEl.empty();
@@ -270,12 +269,15 @@ export class ReviewPanelView extends ItemView {
     for (const idx of ids) {
       const c = parsed.nodes[idx] as CommentNode;
       const msg = messages.createDiv({
-        cls: `kcm-message kcm-message-${c.author}`,
+        cls: `kcm-message kcm-message-${c.authorName ? "named" : "you"}`,
       });
+      if (c.authorName) {
+        msg.setAttr("data-author-hue", String(authorHueIndex(c.authorName)));
+      }
       const meta = msg.createDiv({ cls: "kcm-message-meta" });
       meta.createSpan({
         cls: "kcm-message-author",
-        text: c.author === "ai" ? this.host.getAiPrefix() : "You",
+        text: c.authorName ?? "You",
       });
       const del = meta.createEl("button", { cls: "kcm-icon-btn", attr: { "aria-label": "Delete message" } });
       setIcon(del, "trash-2");
