@@ -15,23 +15,20 @@ export class FinalizeModal extends Modal {
   private summary: FinalizeSummary;
   private onConfirm: (edits: SourceEdit[]) => Promise<void>;
   private source: string;
-  private aiPrefix: string;
 
   constructor(
     app: App,
     file: TFile,
     source: string,
     defaults: FinalizeOptions,
-    aiPrefix: string,
     onConfirm: (edits: SourceEdit[]) => Promise<void>,
   ) {
     super(app);
     this.source = source;
     this.opts = { ...defaults };
-    this.aiPrefix = aiPrefix;
     this.onConfirm = onConfirm;
     this.titleEl.setText(`Finalize "${file.basename}" for publish`);
-    this.summary = summarizeFinalize(parse(source, { aiPrefix }), this.opts);
+    this.summary = summarizeFinalize(parse(source), this.opts);
   }
 
   onOpen(): void {
@@ -104,7 +101,7 @@ export class FinalizeModal extends Modal {
     cancel.addEventListener("click", () => this.close());
     const apply = buttons.createEl("button", { cls: "mod-cta", text: "Apply" });
     apply.addEventListener("click", async () => {
-      const edits = finalizeEdits(parse(this.source, { aiPrefix: this.aiPrefix }), this.opts);
+      const edits = finalizeEdits(parse(this.source), this.opts);
       this.close();
       try {
         await this.onConfirm(edits);
@@ -120,7 +117,7 @@ export class FinalizeModal extends Modal {
   }
 
   private refreshSummary(): void {
-    this.summary = summarizeFinalize(parse(this.source, { aiPrefix: this.aiPrefix }), this.opts);
+    this.summary = summarizeFinalize(parse(this.source), this.opts);
     const target = this.contentEl.querySelector(".kcm-finalize-summary");
     if (target instanceof HTMLElement) {
       target.empty();
