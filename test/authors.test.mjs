@@ -54,6 +54,14 @@ test("AUTHOR_RE allows leading whitespace", () => {
   assert.equal(m[1], "Claude");
 });
 
+test("AUTHOR_RE tolerates whitespace before the colon", () => {
+  // Intentional: `\s*:\s*` is permissive. "Claude : hi" is still a single-token
+  // name and should match. Multi-word names are still rejected (covered above).
+  const m = "Claude : hi".match(AUTHOR_RE);
+  assert.ok(m);
+  assert.equal(m[1], "Claude");
+});
+
 test("AUTHOR_RE rejects multi-word strings", () => {
   assert.equal("asdjak adakjds : oops".match(AUTHOR_RE), null);
   assert.equal("see line 4 : bad".match(AUTHOR_RE), null);

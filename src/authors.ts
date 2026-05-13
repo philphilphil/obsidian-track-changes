@@ -12,23 +12,25 @@
 
 export const AUTHOR_RE = /^\s*([A-Za-z][\w.\-]{0,29})\s*:\s*/;
 
+// Hue indices match --kcm-author-hue-N in styles.css:
+//   0 blue, 1 purple, 2 green, 3 orange, 4 pink, 5 teal, 6 yellow, 7 red.
+// Indices 4 and 6 are unused by KNOWN_AUTHORS — they remain available for the hash fallback.
 const KNOWN_AUTHORS: Record<string, number> = {
-  // index → hue defined in styles.css
-  claude: 7,            // red
+  claude: 7,
   gpt: 2,
   "gpt-4": 2,
   "gpt-4o": 2,
   "gpt-5": 2,
   chatgpt: 2,
-  openai: 2,            // green
+  openai: 2,
   gemini: 0,
   "gemini-pro": 0,
-  bard: 0,              // blue
+  bard: 0,
   copilot: 1,
-  "github-copilot": 1,  // purple
+  "github-copilot": 1,
   mistral: 3,
-  mixtral: 3,           // orange
-  llama: 5,             // teal
+  mixtral: 3,
+  llama: 5,
 };
 
 export function authorHueIndex(name: string): number {
