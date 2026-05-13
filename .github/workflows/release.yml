@@ -20,8 +20,12 @@ jobs:
 
       - name: Build plugin
         run: |
-          npm install
+          npm ci
           npm run build
+
+      - name: Validate release tag
+        run: |
+          node -e 'const fs = require("fs"); const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8")); const tag = process.env.GITHUB_REF_NAME; if (tag !== manifest.version) { console.error("Release tag " + tag + " must exactly match manifest version " + manifest.version); process.exit(1); }'
 
       - name: Create release
         env:
@@ -31,5 +35,4 @@ jobs:
 
           gh release create "$tag" \
             --title="$tag" \
-            --draft \
             main.js manifest.json styles.css

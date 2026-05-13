@@ -44,7 +44,7 @@ Adjacent `{>>...<<}` blocks form one thread. The user replies by adding a `{>>..
 When asked to "process replies" or "address my comments", make a pass over the file and only act on threads the user has actually replied to. A comment with no reply is still waiting on them — leave it alone.
 
 Reply conventions:
-- `{>>ignore<<}` / `{>>won't fix<<}` → leave the thread in place. It documents the decision. (Use the plugin's "Delete all resolved threads" command to sweep these before publish.)
+- `{>>ignore<<}` / `{>>won't fix<<}` → leave the thread in place. It documents the decision. The user can delete the thread manually before publish.
 - `{>>done<<}` → verify the surrounding text actually addresses your original comment. If yes, delete the whole thread. If not, push back with a new `{>>Claude: <follow-up><<}` adjacent to the existing thread.
 - `{>>expand<<}` or any question → add a follow-up `{>>Claude: <answer><<}` adjacent to the existing thread.
 - Counter-argument → engage. Either concede (delete the thread) or push back (new adjacent `{>>Claude: …<<}`).

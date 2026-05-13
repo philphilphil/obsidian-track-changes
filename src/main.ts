@@ -11,7 +11,6 @@ import { EditorView } from "@codemirror/view";
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
 import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
-import { parse } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import {
@@ -59,16 +58,6 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         return true;
       },
     });
-    this.addCommand({
-      id: "delete-all-resolved-threads",
-      name: "Delete all resolved (ignore/done) threads",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!file || file.extension !== "md") return false;
-        if (!checking) void this.deleteResolvedThreads(file);
-        return true;
-      },
-    });
 
     // Ribbon for quick access.
     this.addRibbonIcon("message-square", "Open CriticMarkup review panel", () =>
@@ -111,7 +100,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         return file && file.extension === "md" ? file : null;
       },
-      applyEdits: async (file, edits) => this.applyEditsToFile(file, edits),
+      applyEdits: async (file, edits) => {
+        await this.applyEditsToFile(file, edits);
+      },
       revealOffset: (file, offset, length) => this.revealOffsetInEditor(file, offset, length),
     };
     return new ReviewPanelView(leaf, host);
@@ -159,50 +150,103 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   /**
    * Apply edits to a file. If the file is open in an active editor, route
    * through the editor's CM6 transaction so undo coalesces with the user's
-   * normal undo stack. Otherwise fall back to vault.modify, which is a
-   * vault-level operation and lands in Obsidian's persistent history.
+   * normal undo stack. Otherwise fall back to Vault.process for an atomic
+   * background-file rewrite.
    */
-  private async applyEditsToFile(file: TFile, edits: SourceEdit[]): Promise<void> {
-    if (edits.length === 0) return;
+  private async applyEditsToFile(
+    file: TFile,
+    edits: SourceEdit[],
+    options: ApplyEditsOptions = {},
+  ): Promise<boolean> {
+    if (edits.length === 0) return true;
     const editor = this.findEditorForFile(file);
     // `editor.cm` is undocumented but stable across Obsidian releases; it
     // exposes the underlying CM6 EditorView so our dispatch coalesces with
     // the user's normal undo stack.
     const cm = editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
-    const currentSource = cm
-      ? cm.state.doc.toString()
-      : editor
-        ? editor.getValue()
-        : await this.app.vault.read(file);
+    const currentSource = cm ? cm.state.doc.toString() : editor ? editor.getValue() : null;
 
     // Rebase against the current doc so stale offsets (from a re-parse the
     // panel did some ms ago, while the user was typing or the AI was editing
     // through another channel) can't corrupt unrelated text.
-    const { edits: rebased, dropped } = rebaseEdits(currentSource, edits);
-    if (rebased.length === 0) {
-      new Notice("Edit could not be applied — the text moved or was changed.");
-      return;
+    if (currentSource !== null) {
+      const prepared = this.prepareEdits(currentSource, edits, options);
+      if (!prepared.ok) {
+        this.showEditFailure(prepared.reason, options);
+        return false;
+      }
+      this.showDroppedEdits(prepared.dropped);
+
+      if (cm) {
+        cm.dispatch({
+          changes: prepared.edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
+        });
+        this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
+        return true;
+      }
+      if (editor) {
+        const next = applyEdits(currentSource, prepared.edits);
+        editor.setValue(next);
+        this.getReviewView()?.refreshFromSource(file, next);
+        return true;
+      }
     }
+
+    let processOk = false;
+    let processDropped = edits.length;
+    let processReason: EditFailureReason = "moved";
+    const next = await this.app.vault.process(file, (latestSource) => {
+      const result = this.prepareEdits(latestSource, edits, options);
+      if (!result.ok) {
+        processOk = false;
+        processDropped = result.dropped;
+        processReason = result.reason;
+        return latestSource;
+      }
+      const nextSource = applyEdits(latestSource, result.edits);
+      processOk = true;
+      processDropped = result.dropped;
+      return nextSource;
+    });
+    if (!processOk) {
+      this.showEditFailure(processReason, options);
+      return false;
+    }
+    this.showDroppedEdits(processDropped);
+    this.getReviewView()?.refreshFromSource(file, next);
+    return true;
+  }
+
+  private prepareEdits(
+    currentSource: string,
+    edits: SourceEdit[],
+    options: ApplyEditsOptions,
+  ): PreparedEdits {
+    if (options.expectedSource !== undefined && currentSource !== options.expectedSource) {
+      return { ok: false, reason: "stale", dropped: edits.length };
+    }
+
+    const { edits: rebased, dropped } = rebaseEdits(currentSource, edits);
+    if (rebased.length === 0 || (options.requireAll && dropped > 0)) {
+      return { ok: false, reason: "moved", dropped };
+    }
+    return { ok: true, edits: rebased, dropped };
+  }
+
+  private showEditFailure(reason: EditFailureReason, options: ApplyEditsOptions): void {
+    if (reason === "stale") {
+      new Notice("Edit canceled — the file changed. Reopen the dialog and try again.");
+    } else if (options.requireAll) {
+      new Notice("Edit canceled — one or more targets moved or changed.");
+    } else {
+      new Notice("Edit could not be applied — the text moved or was changed.");
+    }
+  }
+
+  private showDroppedEdits(dropped: number): void {
     if (dropped > 0) {
       new Notice(`Skipped ${dropped} edit(s) — the target text moved or was changed.`);
     }
-
-    if (cm) {
-      cm.dispatch({
-        changes: rebased.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
-      });
-      this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
-      return;
-    }
-    if (editor) {
-      const next = applyEdits(currentSource, rebased);
-      editor.setValue(next);
-      this.getReviewView()?.refreshFromSource(file, next);
-      return;
-    }
-    const next = applyEdits(currentSource, rebased);
-    await this.app.vault.modify(file, next);
-    this.getReviewView()?.refreshFromSource(file, next);
   }
 
   private findEditorForFile(file: TFile): Editor | null {
@@ -257,39 +301,25 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       file,
       source,
       this.settings.finalize,
-      async (edits) => this.applyEditsToFile(file, edits),
+      async (edits) => {
+        await this.applyEditsToFile(file, edits, {
+          expectedSource: source,
+          requireAll: true,
+        });
+      },
     ).open();
   }
-
-  // ---- delete all "ignore"/"done" threads ----
-
-  private async deleteResolvedThreads(file: TFile): Promise<void> {
-    const source = await this.app.vault.cachedRead(file);
-    const parsed = parse(source);
-    const edits: SourceEdit[] = [];
-    for (const t of parsed.threads) {
-      // A thread is "resolved" if any reply's text is a recognised
-      // resolution marker, regardless of who wrote it. (A self-tagged
-      // reply like {>>Phil: ignore<<} still resolves.)
-      const replies = t.replyIndexes.map((i) => parsed.nodes[i]);
-      const resolved = replies.some((r) => {
-        if (r.kind !== "comment") return false;
-        return /^(ignore|won['’]?t fix|wontfix|done|resolved)$/i.test(r.text.trim());
-      });
-      if (resolved) {
-        edits.push({
-          from: t.from,
-          to: t.to,
-          insert: "",
-          expected: source.slice(t.from, t.to),
-        });
-      }
-    }
-    if (edits.length === 0) {
-      new Notice("No resolved threads found.");
-      return;
-    }
-    await this.applyEditsToFile(file, edits);
-    new Notice(`Deleted ${edits.length} resolved thread(s).`);
-  }
 }
+
+interface ApplyEditsOptions {
+  /** Refuse to apply if the document source changed since the action was prepared. */
+  expectedSource?: string;
+  /** Refuse partial success if any edit cannot be rebased. */
+  requireAll?: boolean;
+}
+
+type EditFailureReason = "stale" | "moved";
+
+type PreparedEdits =
+  | { ok: true; edits: SourceEdit[]; dropped: number }
+  | { ok: false; reason: EditFailureReason; dropped: number };

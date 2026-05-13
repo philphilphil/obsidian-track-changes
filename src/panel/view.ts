@@ -12,10 +12,8 @@
 import {
   ItemView,
   WorkspaceLeaf,
-  MarkdownRenderer,
   TFile,
   debounce,
-  Component,
   setIcon,
   type App,
 } from "obsidian";
@@ -64,7 +62,6 @@ export class ReviewPanelView extends ItemView {
   private rerender = debounce(() => this.refresh(), 200, true);
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
   private collapsedCards = new Set<number>(); // card-offset values that are collapsed
-  private markdownChildren: Component[] = [];
   // Bumped on every refresh() entry. Lets an in-flight refresh detect that a
   // newer one started while it was awaiting the file read, and bail before
   // touching the DOM — otherwise overlapping refreshes append duplicate cards.
@@ -101,7 +98,6 @@ export class ReviewPanelView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    this.disposeMarkdownChildren();
     this.contentEl.empty();
   }
 
@@ -146,7 +142,6 @@ export class ReviewPanelView extends ItemView {
     const file = this.currentFile;
 
     if (!file) {
-      this.disposeMarkdownChildren();
       this.contentEl.empty();
       this.contentEl.createEl("p", {
         cls: "tc-empty",
@@ -163,7 +158,6 @@ export class ReviewPanelView extends ItemView {
         source = await this.app.vault.cachedRead(file);
       } catch {
         if (seq !== this.refreshSeq) return;
-        this.disposeMarkdownChildren();
         this.contentEl.empty();
         this.contentEl.createEl("p", { cls: "tc-empty", text: "Could not read file." });
         return;
@@ -180,7 +174,6 @@ export class ReviewPanelView extends ItemView {
     this.currentSource = source;
     const parsed = parse(source);
 
-    this.disposeMarkdownChildren();
     this.contentEl.empty();
 
     this.renderHeader(file, parsed);
@@ -289,7 +282,7 @@ export class ReviewPanelView extends ItemView {
       });
 
       const body = msg.createDiv({ cls: "tc-message-body" });
-      this.renderMarkdownInto(body, c.text, file.path);
+      this.renderTextInto(body, c.text);
     }
 
     const reply = card.createDiv({ cls: "tc-reply" });
@@ -343,7 +336,7 @@ export class ReviewPanelView extends ItemView {
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Insert" });
     const added = diff.createDiv({ cls: "tc-diff-added" });
-    this.renderMarkdownInto(added, n.text, file.path);
+    this.renderTextInto(added, n.text);
     this.renderAcceptReject(
       card,
       file,
@@ -369,7 +362,7 @@ export class ReviewPanelView extends ItemView {
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Delete" });
     const removed = diff.createDiv({ cls: "tc-diff-removed" });
-    this.renderMarkdownInto(removed, n.text, file.path);
+    this.renderTextInto(removed, n.text);
     this.renderAcceptReject(
       card,
       file,
@@ -395,11 +388,11 @@ export class ReviewPanelView extends ItemView {
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Replace" });
     const removed = diff.createDiv({ cls: "tc-diff-removed" });
-    this.renderMarkdownInto(removed, n.oldText, file.path);
+    this.renderTextInto(removed, n.oldText);
     const arrow = diff.createDiv({ cls: "tc-diff-arrow" });
     arrow.setText("→");
     const added = diff.createDiv({ cls: "tc-diff-added" });
-    this.renderMarkdownInto(added, n.newText, file.path);
+    this.renderTextInto(added, n.newText);
     this.renderAcceptReject(
       card,
       file,
@@ -453,7 +446,7 @@ export class ReviewPanelView extends ItemView {
     const body = card.createDiv({ cls: "tc-card-body" });
     const diff = body.createDiv({ cls: "tc-diff" });
     const diffBody = diff.createDiv({ cls: "tc-diff-highlight" });
-    this.renderMarkdownInto(diffBody, n.text, file.path);
+    this.renderTextInto(diffBody, n.text);
     const actions = body.createDiv({ cls: "tc-card-actions" });
     const removeBtn = actions.createEl("button", {
       cls: "tc-btn-reject",
@@ -547,17 +540,7 @@ export class ReviewPanelView extends ItemView {
     if (toggle) setIcon(toggle, willCollapse ? "chevron-right" : "chevron-down");
   }
 
-  private renderMarkdownInto(el: HTMLElement, text: string, sourcePath: string): void {
-    const child = new Component();
-    child.load();
-    this.markdownChildren.push(child);
-    // MarkdownRenderer.render is async but we don't need to await — the panel
-    // doesn't depend on the rendering being complete.
-    void MarkdownRenderer.render(this.app, text, el, sourcePath, child);
-  }
-
-  private disposeMarkdownChildren(): void {
-    for (const c of this.markdownChildren) c.unload();
-    this.markdownChildren = [];
+  private renderTextInto(el: HTMLElement, text: string): void {
+    el.setText(text);
   }
 }

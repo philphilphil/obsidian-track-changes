@@ -84,6 +84,39 @@ class ThreadChipWidget extends WidgetType {
   }
 }
 
+class SubstitutionWidget extends WidgetType {
+  constructor(
+    readonly oldText: string,
+    readonly newText: string,
+    readonly offset: number,
+  ) {
+    super();
+  }
+
+  eq(other: SubstitutionWidget): boolean {
+    return (
+      other.oldText === this.oldText &&
+      other.newText === this.newText &&
+      other.offset === this.offset
+    );
+  }
+
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("span");
+    wrap.className = "tc-substitution-widget";
+    wrap.setAttr("data-tc-offset", String(this.offset));
+
+    wrap.createSpan({ cls: "tc-sub-old", text: this.oldText });
+    wrap.createSpan({ cls: "tc-sub-arrow", text: " → " });
+    wrap.createSpan({ cls: "tc-sub-new", text: this.newText });
+    return wrap;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
 function threadTooltip(thread: Thread, nodes: CriticNode[]): string {
   const ids = [thread.rootIndex, ...thread.replyIndexes];
   return ids
@@ -185,36 +218,14 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
       );
       builder.add(innerTo, n.to, hiddenDecoration());
     } else if (n.kind === "substitution") {
-      // {~~old~>new~~}
-      const openLen = 3; // "{~~"
-      const closeLen = 3; // "~~}"
-      const oldFrom = n.from + openLen;
-      const oldTo = oldFrom + n.oldText.length;
-      const sepFrom = oldTo;
-      const sepTo = sepFrom + 2; // "~>"
-      const newFrom = sepTo;
-      const newTo = newFrom + n.newText.length;
-      const closeFrom = n.to - closeLen;
-
-      builder.add(n.from, oldFrom, hiddenDecoration());
       builder.add(
-        oldFrom,
-        oldTo,
-        Decoration.mark({
-          class: "tc-sub-old",
-          attributes: { "data-tc-offset": String(n.from) },
+        n.from,
+        n.to,
+        Decoration.replace({
+          widget: new SubstitutionWidget(n.oldText, n.newText, n.from),
+          inclusive: false,
         }),
       );
-      builder.add(sepFrom, sepTo, hiddenDecoration());
-      builder.add(
-        newFrom,
-        newTo,
-        Decoration.mark({
-          class: "tc-sub-new",
-          attributes: { "data-tc-offset": String(n.from) },
-        }),
-      );
-      builder.add(closeFrom, n.to, hiddenDecoration());
     } else if (n.kind === "highlight") {
       const innerFrom = n.from + 3;
       const innerTo = n.to - 3;

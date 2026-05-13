@@ -27,7 +27,6 @@ Drop [`docs/CLAUDE.md`](docs/CLAUDE.md) into the folder you want reviewed (renam
 - Multi-author support — each `<Name>:` prefix gets its own color; well-known AI names get brand-ish hues
 - Accept / reject per suggestion; delete per message or per thread; reply inline
 - **Finalize for publish** — resolves all remaining markup in one pass
-- **Delete resolved threads** — sweeps threads marked `ignore`, `won't fix`, `done`, or `resolved`
 - Reading mode renders either the accepted preview or raw side-by-side
 - Markup inside code blocks is left alone
 
@@ -37,7 +36,6 @@ Drop [`docs/CLAUDE.md`](docs/CLAUDE.md) into the folder you want reviewed (renam
 |---|---|
 | Open review panel | Opens the side panel for the active note |
 | Finalize for publish | Accepts all insertions, removes all deletions and comments |
-| Delete all resolved threads | Removes threads whose last reply is `done`, `resolved`, `ignore`, or `won't fix` |
 
 ## Install
 

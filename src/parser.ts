@@ -110,11 +110,11 @@ function findCodeRegions(source: string): Array<[number, number]> {
   return regions;
 }
 
-function offsetInRegions(offset: number, regions: Array<[number, number]>): boolean {
+function rangeIntersectsRegions(from: number, to: number, regions: Array<[number, number]>): boolean {
   // Binary search would be nicer; linear is fine for typical doc sizes.
   for (const [a, b] of regions) {
-    if (offset >= a && offset < b) return true;
-    if (offset < a) return false;
+    if (to <= a) return false;
+    if (from < b && to > a) return true;
   }
   return false;
 }
@@ -194,7 +194,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   let lastEnd = -1;
   for (const n of nodes) {
     if (n.from < lastEnd) continue; // overlap with previous accepted node
-    if (skipCode && offsetInRegions(n.from, codeRegions)) continue;
+    if (skipCode && rangeIntersectsRegions(n.from, n.to, codeRegions)) continue;
     accepted.push(n);
     lastEnd = n.to;
   }

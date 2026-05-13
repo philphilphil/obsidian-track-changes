@@ -196,6 +196,13 @@ test("markup inside fenced code block is not parsed", () => {
   assert.equal(r.nodes[0].text, "real");
 });
 
+test("markup crossing into a fenced code block is not parsed", () => {
+  const src = "before {++not\n```\ncode++}\n```\nafter {++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
 test("markup inside inline code span is not parsed", () => {
   const src = "literal `{++foo++}` versus real {++bar++}";
   const r = parse(src);

@@ -28,20 +28,18 @@ Entry point `src/main.ts` is the `Plugin` subclass. It wires four things into Ob
 1. **Right-side panel view** (`src/panel/view.ts`, `REVIEW_VIEW_TYPE`) — the review UI. `main.ts` constructs a `PanelHost` adapter so the panel never imports the `Plugin` directly; the panel calls back through `host.applyEdits`, `host.revealOffset`.
 2. **CodeMirror 6 decoration extension** (`src/editor/decorations.ts`) — inline highlighting of CriticMarkup ranges in Live Preview / Source mode. Click handler routes back into `main.handleInlineClick` which opens the panel and focuses the offset.
 3. **Reading-mode post-processor** (`src/reading.ts`) — renders markup in preview mode either as accepted preview or side-by-side, based on settings.
-4. **Commands**: open panel, finalize for publish (`src/finalize.ts`), delete resolved threads.
+4. **Commands**: open panel, finalize for publish (`src/finalize.ts`).
 
 ### Data flow: parse → edits → rebase → apply
 
 - `src/parser.ts` scans source text and emits a `ParseResult` with `nodes` (the five CriticMarkup kinds) and `threads` (adjacent `{>>…<<}` blocks group). Comments expose `authorName: string | null` — the captured `<Name>:` prefix (original casing) or `null` if unprefixed. **Code blocks are skipped** — markup inside fences is left alone.
 - `src/operations.ts` turns user actions (accept, reject, reply, delete-thread, …) into `SourceEdit[]`. Each edit carries optional `expected` (text at `[from, to)`) and `before` (text immediately preceding `from`) as anchors.
 - `rebaseEdits` re-validates each edit against the *current* document right before write. If the doc drifted since parse (user typed, AI re-edited via another channel), it searches a ±200-char window for the `before+expected` anchor; non-unique matches are dropped rather than risk corrupting unrelated text. This is critical — never apply raw stale offsets.
-- `main.applyEditsToFile` prefers the live CM6 `EditorView.dispatch` (so changes coalesce with the user's undo stack), falls back to `Editor.setValue`, then to `vault.modify`.
+- `main.applyEditsToFile` prefers the live CM6 `EditorView.dispatch` (so changes coalesce with the user's undo stack), falls back to `Editor.setValue`, then to `Vault.process` for unopened files.
 
 ### Threading
 
 A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank line) between them in the same paragraph. First is root, rest are replies. Authorship is detected from a `<Name>:` prefix on each comment (single token, alpha-leading, ≤30 chars — see `src/authors.ts`). Comments without a recognised prefix render as "You" (the local user). Treat this as a hard contract; don't add other heuristics.
-
-The "delete all resolved threads" command sweeps threads whose reply matches `/^(ignore|won't fix|wontfix|done|resolved)$/i`, regardless of who wrote it.
 
 ### Settings
 
