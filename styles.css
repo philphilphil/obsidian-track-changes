@@ -6,6 +6,39 @@
  *  - Inline rendering must be visually quiet enough to read prose around it.
  */
 
+/* ---------- Author hue palette ----------
+ *
+ * Per-author tinting for chips and panel messages. The hue is set by JS
+ * on the wrapping element via data-author-hue="0..7" (see src/authors.ts).
+ * Saturation/lightness are fixed so the result is legible across themes.
+ */
+
+.kcm-chip[data-author-hue],
+.kcm-message[data-author-hue],
+.kcm-rm-comment[data-author-hue] {
+  --kcm-hue: 210;
+  border-color: hsla(var(--kcm-hue), 70%, 55%, 0.4);
+  background: hsla(var(--kcm-hue), 70%, 55%, 0.08);
+}
+.kcm-message[data-author-hue] {
+  border-left: 3px solid hsla(var(--kcm-hue), 70%, 55%, 0.5);
+  background: hsla(var(--kcm-hue), 70%, 55%, 0.08);
+}
+.kcm-rm-comment[data-author-hue] {
+  color: hsla(var(--kcm-hue), 70%, 50%, 0.9);
+  background: transparent;
+  border: none;
+}
+
+.kcm-chip[data-author-hue="0"], .kcm-message[data-author-hue="0"], .kcm-rm-comment[data-author-hue="0"] { --kcm-hue: 210; } /* blue */
+.kcm-chip[data-author-hue="1"], .kcm-message[data-author-hue="1"], .kcm-rm-comment[data-author-hue="1"] { --kcm-hue: 280; } /* purple */
+.kcm-chip[data-author-hue="2"], .kcm-message[data-author-hue="2"], .kcm-rm-comment[data-author-hue="2"] { --kcm-hue: 150; } /* green */
+.kcm-chip[data-author-hue="3"], .kcm-message[data-author-hue="3"], .kcm-rm-comment[data-author-hue="3"] { --kcm-hue: 30; }  /* orange */
+.kcm-chip[data-author-hue="4"], .kcm-message[data-author-hue="4"], .kcm-rm-comment[data-author-hue="4"] { --kcm-hue: 340; } /* pink */
+.kcm-chip[data-author-hue="5"], .kcm-message[data-author-hue="5"], .kcm-rm-comment[data-author-hue="5"] { --kcm-hue: 190; } /* teal */
+.kcm-chip[data-author-hue="6"], .kcm-message[data-author-hue="6"], .kcm-rm-comment[data-author-hue="6"] { --kcm-hue: 50; }  /* yellow */
+.kcm-chip[data-author-hue="7"], .kcm-message[data-author-hue="7"], .kcm-rm-comment[data-author-hue="7"] { --kcm-hue: 0; }   /* red — Claude */
+
 /* ---------- Inline (editor / live preview) ---------- */
 
 .kcm-chip {
@@ -28,13 +61,12 @@
 .kcm-chip:hover {
   background: var(--background-modifier-hover);
 }
-.kcm-chip-ai {
-  border-color: rgba(124, 92, 255, 0.4);
-  background: rgba(124, 92, 255, 0.08);
-}
-.kcm-chip-human {
+.kcm-chip-you {
   border-color: rgba(0, 122, 204, 0.4);
   background: rgba(0, 122, 204, 0.08);
+}
+.kcm-chip-named {
+  /* hue/background come from [data-author-hue="N"] selectors above */
 }
 .kcm-chip-icon {
   font-size: 0.7em;
@@ -213,13 +245,12 @@
   padding: 6px 8px;
   background: var(--background-secondary);
 }
-.kcm-message-ai {
-  background: rgba(124, 92, 255, 0.08);
-  border-left: 3px solid rgba(124, 92, 255, 0.5);
-}
-.kcm-message-human {
+.kcm-message-you {
   background: rgba(0, 122, 204, 0.08);
   border-left: 3px solid rgba(0, 122, 204, 0.5);
+}
+.kcm-message-named {
+  /* hue/background come from [data-author-hue="N"] selectors above */
 }
 .kcm-message-meta {
   display: flex;
@@ -369,11 +400,11 @@
   color: var(--text-muted);
   cursor: help;
 }
-.kcm-rm-comment-ai {
-  color: rgba(124, 92, 255, 0.85);
-}
-.kcm-rm-comment-human {
+.kcm-rm-comment-you {
   color: rgba(0, 122, 204, 0.85);
+}
+.kcm-rm-comment-named {
+  /* color comes from [data-author-hue="N"] selectors above */
 }
 .kcm-rm-addition {
   background: rgba(56, 161, 105, 0.12);
