@@ -18,20 +18,18 @@ import { RangeSetBuilder } from "@codemirror/state";
 import type { ViewUpdate, PluginValue } from "@codemirror/view";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
+import { authorHueIndex } from "../authors";
 
 export interface DecorationCallbacks {
   /** User clicked the inline rendering for the markup at this source offset. */
   onClick: (sourceOffset: number) => void;
-  /** Configured AI-author prefix; passed through to parse() so author detection is consistent. */
-  getAiPrefix: () => string;
 }
 
 class ThreadChipWidget extends WidgetType {
   constructor(
     readonly index: number,
     readonly count: number,
-    readonly author: "ai" | "human",
-    readonly label: string,
+    readonly authorName: string | null,
     readonly offset: number,
     readonly tooltip: string,
     readonly onClick: (offset: number) => void,
@@ -43,8 +41,7 @@ class ThreadChipWidget extends WidgetType {
     return (
       other.index === this.index &&
       other.count === this.count &&
-      other.author === this.author &&
-      other.label === this.label &&
+      other.authorName === this.authorName &&
       other.offset === this.offset &&
       other.tooltip === this.tooltip
     );
@@ -52,13 +49,21 @@ class ThreadChipWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const chip = document.createElement("span");
-    chip.className = `kcm-chip kcm-chip-${this.author}`;
+    chip.className = `kcm-chip kcm-chip-${this.authorName ? "named" : "you"}`;
+    if (this.authorName) {
+      chip.setAttr("data-author-hue", String(authorHueIndex(this.authorName)));
+    }
     chip.setAttr("role", "button");
     chip.setAttr("aria-label", `Open comment #${this.index} in panel`);
     chip.setAttr("title", this.tooltip);
 
     const icon = chip.createSpan({ cls: "kcm-chip-icon" });
-    icon.setText(this.author === "ai" ? this.label : "💬");
+    if (this.authorName) {
+      const label = this.authorName.length > 12 ? this.authorName.slice(0, 11) + "…" : this.authorName;
+      icon.setText(label);
+    } else {
+      icon.setText("💬");
+    }
 
     chip.createSpan({ cls: "kcm-chip-num", text: `#${this.index}` });
 
@@ -79,11 +84,11 @@ class ThreadChipWidget extends WidgetType {
   }
 }
 
-function threadTooltip(thread: Thread, nodes: CriticNode[], aiPrefix: string): string {
+function threadTooltip(thread: Thread, nodes: CriticNode[]): string {
   const ids = [thread.rootIndex, ...thread.replyIndexes];
   return ids
     .map((i) => nodes[i] as CommentNode)
-    .map((c) => `${c.author === "ai" ? aiPrefix : "You"}: ${c.text.trim()}`)
+    .map((c) => `${c.authorName ?? "You"}: ${c.text.trim()}`)
     .join("\n\n");
 }
 
@@ -96,8 +101,7 @@ function rangeTouchesSelection(view: EditorView, from: number, to: number): bool
 
 function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): DecorationSet {
   const source = view.state.doc.toString();
-  const aiPrefix = callbacks.getAiPrefix();
-  const parsed = parse(source, { aiPrefix });
+  const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
 
   // Walk threads in order, but we also need to emit decorations for non-comment
@@ -137,10 +141,9 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
       const widget = new ThreadChipWidget(
         threadIndex,
         count,
-        root.author,
-        aiPrefix,
+        root.authorName,
         t.from,
-        threadTooltip(t, parsed.nodes, aiPrefix),
+        threadTooltip(t, parsed.nodes),
         callbacks.onClick,
       );
       builder.add(
