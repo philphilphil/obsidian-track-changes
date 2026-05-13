@@ -1,8 +1,8 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
-import type KissCriticMarkupPlugin from "./main";
+import type TrackChangesCriticMarkupPlugin from "./main";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 
-export interface KissCriticMarkupSettings {
+export interface TrackChangesCriticMarkupSettings {
   /** Where to open the review panel by default. */
   panelSide: "left" | "right";
   /** How reading mode renders suggestions. */
@@ -11,16 +11,16 @@ export interface KissCriticMarkupSettings {
   finalize: FinalizeOptions;
 }
 
-export const DEFAULT_SETTINGS: KissCriticMarkupSettings = {
+export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   panelSide: "right",
   readingMode: "accepted",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
-export class KissCriticMarkupSettingsTab extends PluginSettingTab {
-  plugin: KissCriticMarkupPlugin;
+export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
+  plugin: TrackChangesCriticMarkupPlugin;
 
-  constructor(app: App, plugin: KissCriticMarkupPlugin) {
+  constructor(app: App, plugin: TrackChangesCriticMarkupPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }

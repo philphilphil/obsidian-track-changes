@@ -49,7 +49,7 @@ class ThreadChipWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const chip = document.createElement("span");
-    chip.className = `kcm-chip kcm-chip-${this.authorName ? "named" : "you"}`;
+    chip.className = `tc-chip tc-chip-${this.authorName ? "named" : "you"}`;
     if (this.authorName) {
       chip.setAttr("data-author-hue", String(authorHueIndex(this.authorName)));
     }
@@ -57,7 +57,7 @@ class ThreadChipWidget extends WidgetType {
     chip.setAttr("aria-label", `Open comment #${this.index} in panel`);
     chip.setAttr("title", this.tooltip);
 
-    const icon = chip.createSpan({ cls: "kcm-chip-icon" });
+    const icon = chip.createSpan({ cls: "tc-chip-icon" });
     if (this.authorName) {
       const label = this.authorName.length > 12 ? this.authorName.slice(0, 11) + "…" : this.authorName;
       icon.setText(label);
@@ -65,10 +65,10 @@ class ThreadChipWidget extends WidgetType {
       icon.setText("💬");
     }
 
-    chip.createSpan({ cls: "kcm-chip-num", text: `#${this.index}` });
+    chip.createSpan({ cls: "tc-chip-num", text: `#${this.index}` });
 
     if (this.count > 1) {
-      chip.createSpan({ cls: "kcm-chip-badge", text: String(this.count) });
+      chip.createSpan({ cls: "tc-chip-badge", text: String(this.count) });
     }
 
     chip.addEventListener("mousedown", (e) => {
@@ -166,8 +166,8 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
         innerFrom,
         innerTo,
         Decoration.mark({
-          class: "kcm-addition",
-          attributes: { "data-kcm-offset": String(n.from) },
+          class: "tc-addition",
+          attributes: { "data-tc-offset": String(n.from) },
         }),
       );
       builder.add(innerTo, n.to, hiddenDecoration());
@@ -179,8 +179,8 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
         innerFrom,
         innerTo,
         Decoration.mark({
-          class: "kcm-deletion",
-          attributes: { "data-kcm-offset": String(n.from) },
+          class: "tc-deletion",
+          attributes: { "data-tc-offset": String(n.from) },
         }),
       );
       builder.add(innerTo, n.to, hiddenDecoration());
@@ -201,8 +201,8 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
         oldFrom,
         oldTo,
         Decoration.mark({
-          class: "kcm-sub-old",
-          attributes: { "data-kcm-offset": String(n.from) },
+          class: "tc-sub-old",
+          attributes: { "data-tc-offset": String(n.from) },
         }),
       );
       builder.add(sepFrom, sepTo, hiddenDecoration());
@@ -210,8 +210,8 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
         newFrom,
         newTo,
         Decoration.mark({
-          class: "kcm-sub-new",
-          attributes: { "data-kcm-offset": String(n.from) },
+          class: "tc-sub-new",
+          attributes: { "data-tc-offset": String(n.from) },
         }),
       );
       builder.add(closeFrom, n.to, hiddenDecoration());
@@ -219,7 +219,7 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
       const innerFrom = n.from + 3;
       const innerTo = n.to - 3;
       builder.add(n.from, innerFrom, hiddenDecoration());
-      builder.add(innerFrom, innerTo, Decoration.mark({ class: "kcm-highlight" }));
+      builder.add(innerFrom, innerTo, Decoration.mark({ class: "tc-highlight" }));
       builder.add(innerTo, n.to, hiddenDecoration());
     }
   }
@@ -250,7 +250,7 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks) {
         mousedown(event, _view) {
           const target = event.target as HTMLElement | null;
           if (!target) return false;
-          const offsetAttr = target.closest("[data-kcm-offset]")?.getAttribute("data-kcm-offset");
+          const offsetAttr = target.closest("[data-tc-offset]")?.getAttribute("data-tc-offset");
           if (offsetAttr != null) {
             const offset = Number(offsetAttr);
             if (!Number.isNaN(offset)) {

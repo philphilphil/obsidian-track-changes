@@ -77,7 +77,7 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
     const authorName = authorMatch ? authorMatch[1] : null;
     const body = authorMatch ? comment.slice(authorMatch[0].length) : comment;
     const span = document.createElement("span");
-    span.className = `kcm-rm-comment kcm-rm-comment-${authorName ? "named" : "you"}`;
+    span.className = `tc-rm-comment tc-rm-comment-${authorName ? "named" : "you"}`;
     if (authorName) {
       span.setAttribute("data-author-hue", String(authorHueIndex(authorName)));
     }
@@ -91,7 +91,7 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
       return document.createTextNode(addition);
     }
     const span = document.createElement("span");
-    span.className = "kcm-rm-addition";
+    span.className = "tc-rm-addition";
     span.textContent = addition;
     return span;
   }
@@ -100,7 +100,7 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
       return document.createTextNode("");
     }
     const span = document.createElement("span");
-    span.className = "kcm-rm-deletion";
+    span.className = "tc-rm-deletion";
     span.textContent = deletion;
     return span;
   }
@@ -109,12 +109,12 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
       return document.createTextNode(subNew);
     }
     const wrap = document.createElement("span");
-    wrap.className = "kcm-rm-substitution";
+    wrap.className = "tc-rm-substitution";
     const o = document.createElement("span");
-    o.className = "kcm-rm-deletion";
+    o.className = "tc-rm-deletion";
     o.textContent = subOld;
     const n = document.createElement("span");
-    n.className = "kcm-rm-addition";
+    n.className = "tc-rm-addition";
     n.textContent = subNew;
     wrap.appendChild(o);
     wrap.appendChild(document.createTextNode(" → "));
@@ -123,7 +123,7 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
   }
   if (highlight !== undefined) {
     const span = document.createElement("span");
-    span.className = "kcm-rm-highlight";
+    span.className = "tc-rm-highlight";
     span.textContent = highlight;
     return span;
   }

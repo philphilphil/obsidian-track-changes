@@ -34,7 +34,7 @@ export class FinalizeModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("kcm-finalize-modal");
+    contentEl.addClass("tc-finalize-modal");
 
     contentEl.createEl("p", {
       text: "Strip all comment threads and resolve every remaining suggestion. Default actions are listed below. The file is rewritten in one step; you can undo from the editor.",
@@ -93,10 +93,10 @@ export class FinalizeModal extends Modal {
       );
 
     new Setting(contentEl).setName("Summary").setHeading();
-    const summaryEl = contentEl.createDiv({ cls: "kcm-finalize-summary" });
+    const summaryEl = contentEl.createDiv({ cls: "tc-finalize-summary" });
     this.renderSummary(summaryEl);
 
-    const buttons = contentEl.createDiv({ cls: "kcm-finalize-buttons" });
+    const buttons = contentEl.createDiv({ cls: "tc-finalize-buttons" });
     const cancel = buttons.createEl("button", { text: "Cancel" });
     cancel.addEventListener("click", () => this.close());
     const apply = buttons.createEl("button", { cls: "mod-cta", text: "Apply" });
@@ -118,7 +118,7 @@ export class FinalizeModal extends Modal {
 
   private refreshSummary(): void {
     this.summary = summarizeFinalize(parse(this.source), this.opts);
-    const target = this.contentEl.querySelector(".kcm-finalize-summary");
+    const target = this.contentEl.querySelector(".tc-finalize-summary");
     if (target instanceof HTMLElement) {
       target.empty();
       this.renderSummary(target);

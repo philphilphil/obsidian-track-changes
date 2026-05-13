@@ -8,11 +8,11 @@
 // (Claude, GPT, Gemini, …) are pinned to specific palette indices so the
 // same model gets the same color across documents. Unknown names fall
 // through to a hash. The palette itself lives in `styles.css` as
-// `--kcm-author-hue-N` CSS variables.
+// `--tc-author-hue-N` CSS variables.
 
 export const AUTHOR_RE = /^\s*([A-Za-z][\w.\-]{0,29})\s*:\s*/;
 
-// Hue indices match --kcm-author-hue-N in styles.css:
+// Hue indices match --tc-author-hue-N in styles.css:
 //   0 blue, 1 purple, 2 green, 3 orange, 4 pink, 5 teal, 6 yellow, 7 red.
 // Indices 4 and 6 are unused by KNOWN_AUTHORS — they remain available for the hash fallback.
 const KNOWN_AUTHORS: Record<string, number> = {

@@ -45,7 +45,7 @@ import {
   type SourceEdit,
 } from "../operations";
 
-export const REVIEW_VIEW_TYPE = "kcm-review-panel";
+export const REVIEW_VIEW_TYPE = "tc-review-panel";
 
 export interface PanelHost {
   app: App;
@@ -86,7 +86,7 @@ export class ReviewPanelView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
-    this.contentEl.addClass("kcm-panel");
+    this.contentEl.addClass("tc-panel");
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.onActiveFileChanged()),
     );
@@ -109,12 +109,14 @@ export class ReviewPanelView extends ItemView {
   focusOffset(file: TFile, offset: number): void {
     if (file !== this.currentFile) return;
     const card = this.contentEl.querySelector(
-      `[data-kcm-card-offset="${offset}"]`,
+      `[data-tc-card-offset="${offset}"]`,
     ) as HTMLElement | null;
     if (card) {
       card.scrollIntoView({ behavior: "smooth", block: "center" });
-      card.addClass("kcm-card-flash");
-      setTimeout(() => card.removeClass("kcm-card-flash"), 1200);
+      card.addClass("tc-card-flash");
+      this.registerInterval(
+        window.setTimeout(() => card.removeClass("tc-card-flash"), 1200),
+      );
     }
   }
 
@@ -147,7 +149,7 @@ export class ReviewPanelView extends ItemView {
       this.disposeMarkdownChildren();
       this.contentEl.empty();
       this.contentEl.createEl("p", {
-        cls: "kcm-empty",
+        cls: "tc-empty",
         text: "Open a markdown file to review its comments and suggestions.",
       });
       return;
@@ -158,12 +160,12 @@ export class ReviewPanelView extends ItemView {
       source = preloadedSource;
     } else {
       try {
-        source = await this.app.vault.read(file);
+        source = await this.app.vault.cachedRead(file);
       } catch {
         if (seq !== this.refreshSeq) return;
         this.disposeMarkdownChildren();
         this.contentEl.empty();
-        this.contentEl.createEl("p", { cls: "kcm-empty", text: "Could not read file." });
+        this.contentEl.createEl("p", { cls: "tc-empty", text: "Could not read file." });
         return;
       }
       if (seq !== this.refreshSeq) return;
@@ -171,7 +173,7 @@ export class ReviewPanelView extends ItemView {
 
     // Skip the rebuild if nothing changed — e.g. the delayed vault `modify`
     // event after we already refreshed via refreshFromSource.
-    if (source === this.currentSource && this.contentEl.querySelector(".kcm-card-list, .kcm-empty")) {
+    if (source === this.currentSource && this.contentEl.querySelector(".tc-card-list, .tc-empty")) {
       return;
     }
 
@@ -185,13 +187,13 @@ export class ReviewPanelView extends ItemView {
 
     if (parsed.nodes.length === 0) {
       this.contentEl.createEl("p", {
-        cls: "kcm-empty",
+        cls: "tc-empty",
         text: "No comments or suggestions in this file.",
       });
       return;
     }
 
-    const list = this.contentEl.createDiv({ cls: "kcm-card-list" });
+    const list = this.contentEl.createDiv({ cls: "tc-card-list" });
 
     // Emit cards in document order. One card per thread (rooted at root
     // index); one card per non-comment node.
@@ -218,8 +220,8 @@ export class ReviewPanelView extends ItemView {
   }
 
   private renderHeader(file: TFile, parsed: ParseResult): void {
-    const header = this.contentEl.createDiv({ cls: "kcm-header" });
-    header.createEl("div", { cls: "kcm-header-title", text: file.basename });
+    const header = this.contentEl.createDiv({ cls: "tc-header" });
+    header.createEl("div", { cls: "tc-header-title", text: file.basename });
     const counts = {
       threads: parsed.threads.length,
       suggestions: parsed.nodes.filter(
@@ -233,7 +235,7 @@ export class ReviewPanelView extends ItemView {
     if (counts.highlights > 0) {
       parts.push(`${counts.highlights} ${counts.highlights === 1 ? "highlight" : "highlights"}`);
     }
-    header.createEl("div", { cls: "kcm-header-counts", text: parts.join(" · ") });
+    header.createEl("div", { cls: "tc-header-counts", text: parts.join(" · ") });
   }
 
   private renderThreadCard(
@@ -244,19 +246,19 @@ export class ReviewPanelView extends ItemView {
     thread: Thread,
     threadNumber: number,
   ): void {
-    const card = list.createDiv({ cls: "kcm-card kcm-card-thread" });
-    card.setAttr("data-kcm-card-offset", String(thread.from));
+    const card = list.createDiv({ cls: "tc-card tc-card-thread" });
+    card.setAttr("data-tc-card-offset", String(thread.from));
     const isCollapsed = this.collapsedCards.has(thread.from);
-    if (isCollapsed) card.addClass("kcm-card-collapsed");
+    if (isCollapsed) card.addClass("tc-card-collapsed");
 
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest(".kcm-card-toggle")) return;
+      if (target.closest(".tc-card-toggle")) return;
       if (this.collapsedCards.has(thread.from)) {
         this.toggleCardCollapsed(thread.from);
         return;
       }
-      if (target.closest(".kcm-card-actions, .kcm-message, .kcm-reply, button, textarea, input"))
+      if (target.closest(".tc-card-actions, .tc-message, .tc-reply, button, textarea, input"))
         return;
       this.host.revealOffset(file, thread.from, thread.to - thread.from);
     });
@@ -264,35 +266,35 @@ export class ReviewPanelView extends ItemView {
     const root = parsed.nodes[thread.rootIndex] as CommentNode;
     this.renderThreadHeader(card, source, thread, threadNumber, root);
 
-    const messages = card.createDiv({ cls: "kcm-messages" });
+    const messages = card.createDiv({ cls: "tc-messages" });
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
     for (const idx of ids) {
       const c = parsed.nodes[idx] as CommentNode;
       const msg = messages.createDiv({
-        cls: `kcm-message kcm-message-${c.authorName ? "named" : "you"}`,
+        cls: `tc-message tc-message-${c.authorName ? "named" : "you"}`,
       });
       if (c.authorName) {
         msg.setAttr("data-author-hue", String(authorHueIndex(c.authorName)));
       }
-      const meta = msg.createDiv({ cls: "kcm-message-meta" });
+      const meta = msg.createDiv({ cls: "tc-message-meta" });
       meta.createSpan({
-        cls: "kcm-message-author",
+        cls: "tc-message-author",
         text: c.authorName ?? "You",
       });
-      const del = meta.createEl("button", { cls: "kcm-icon-btn", attr: { "aria-label": "Delete message" } });
+      const del = meta.createEl("button", { cls: "tc-icon-btn", attr: { "aria-label": "Delete message" } });
       setIcon(del, "trash-2");
       del.addEventListener("click", async (e) => {
         e.stopPropagation();
         await this.host.applyEdits(file, [deleteCommentNode(c)]);
       });
 
-      const body = msg.createDiv({ cls: "kcm-message-body" });
+      const body = msg.createDiv({ cls: "tc-message-body" });
       this.renderMarkdownInto(body, c.text, file.path);
     }
 
-    const reply = card.createDiv({ cls: "kcm-reply" });
+    const reply = card.createDiv({ cls: "tc-reply" });
     const ta = reply.createEl("textarea", {
-      cls: "kcm-reply-input",
+      cls: "tc-reply-input",
       attr: { placeholder: "Reply…", rows: "2" },
     });
     ta.value = this.replyDrafts.get(thread.from) ?? "";
@@ -312,11 +314,11 @@ export class ReviewPanelView extends ItemView {
       const edit = appendReply(this.currentSource, thread, parsed, text);
       await this.host.applyEdits(file, [edit]);
     };
-    const actions = reply.createDiv({ cls: "kcm-reply-actions" });
-    const submitBtn = actions.createEl("button", { cls: "kcm-btn-primary", text: "Reply" });
+    const actions = reply.createDiv({ cls: "tc-reply-actions" });
+    const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Reply" });
     submitBtn.addEventListener("click", submit);
     const deleteThreadBtn = actions.createEl("button", {
-      cls: "kcm-btn-danger",
+      cls: "tc-btn-danger",
       text: "Delete thread",
     });
     deleteThreadBtn.addEventListener("click", async () => {
@@ -330,17 +332,17 @@ export class ReviewPanelView extends ItemView {
     source: string,
     n: AdditionNode,
   ): void {
-    const card = list.createDiv({ cls: "kcm-card kcm-card-suggestion" });
-    card.setAttr("data-kcm-card-offset", String(n.from));
+    const card = list.createDiv({ cls: "tc-card tc-card-suggestion" });
+    card.setAttr("data-tc-card-offset", String(n.from));
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest("button")) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
     this.renderLineRef(card, source, n.from);
-    const diff = card.createDiv({ cls: "kcm-diff" });
-    diff.createSpan({ cls: "kcm-diff-label", text: "Insert" });
-    const added = diff.createDiv({ cls: "kcm-diff-added" });
+    const diff = card.createDiv({ cls: "tc-diff" });
+    diff.createSpan({ cls: "tc-diff-label", text: "Insert" });
+    const added = diff.createDiv({ cls: "tc-diff-added" });
     this.renderMarkdownInto(added, n.text, file.path);
     this.renderAcceptReject(
       card,
@@ -356,17 +358,17 @@ export class ReviewPanelView extends ItemView {
     source: string,
     n: DeletionNode,
   ): void {
-    const card = list.createDiv({ cls: "kcm-card kcm-card-suggestion" });
-    card.setAttr("data-kcm-card-offset", String(n.from));
+    const card = list.createDiv({ cls: "tc-card tc-card-suggestion" });
+    card.setAttr("data-tc-card-offset", String(n.from));
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest("button")) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
     this.renderLineRef(card, source, n.from);
-    const diff = card.createDiv({ cls: "kcm-diff" });
-    diff.createSpan({ cls: "kcm-diff-label", text: "Delete" });
-    const removed = diff.createDiv({ cls: "kcm-diff-removed" });
+    const diff = card.createDiv({ cls: "tc-diff" });
+    diff.createSpan({ cls: "tc-diff-label", text: "Delete" });
+    const removed = diff.createDiv({ cls: "tc-diff-removed" });
     this.renderMarkdownInto(removed, n.text, file.path);
     this.renderAcceptReject(
       card,
@@ -382,21 +384,21 @@ export class ReviewPanelView extends ItemView {
     source: string,
     n: SubstitutionNode,
   ): void {
-    const card = list.createDiv({ cls: "kcm-card kcm-card-suggestion" });
-    card.setAttr("data-kcm-card-offset", String(n.from));
+    const card = list.createDiv({ cls: "tc-card tc-card-suggestion" });
+    card.setAttr("data-tc-card-offset", String(n.from));
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest("button")) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
     this.renderLineRef(card, source, n.from);
-    const diff = card.createDiv({ cls: "kcm-diff" });
-    diff.createSpan({ cls: "kcm-diff-label", text: "Replace" });
-    const removed = diff.createDiv({ cls: "kcm-diff-removed" });
+    const diff = card.createDiv({ cls: "tc-diff" });
+    diff.createSpan({ cls: "tc-diff-label", text: "Replace" });
+    const removed = diff.createDiv({ cls: "tc-diff-removed" });
     this.renderMarkdownInto(removed, n.oldText, file.path);
-    const arrow = diff.createDiv({ cls: "kcm-diff-arrow" });
+    const arrow = diff.createDiv({ cls: "tc-diff-arrow" });
     arrow.setText("→");
-    const added = diff.createDiv({ cls: "kcm-diff-added" });
+    const added = diff.createDiv({ cls: "tc-diff-added" });
     this.renderMarkdownInto(added, n.newText, file.path);
     this.renderAcceptReject(
       card,
@@ -412,14 +414,14 @@ export class ReviewPanelView extends ItemView {
     source: string,
     n: HighlightNode,
   ): void {
-    const card = list.createDiv({ cls: "kcm-card kcm-card-highlight" });
-    card.setAttr("data-kcm-card-offset", String(n.from));
+    const card = list.createDiv({ cls: "tc-card tc-card-highlight" });
+    card.setAttr("data-tc-card-offset", String(n.from));
     const isCollapsed = this.collapsedCards.has(n.from);
-    if (isCollapsed) card.addClass("kcm-card-collapsed");
+    if (isCollapsed) card.addClass("tc-card-collapsed");
 
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest(".kcm-card-toggle")) return;
+      if (target.closest(".tc-card-toggle")) return;
       if (this.collapsedCards.has(n.from)) {
         this.toggleCardCollapsed(n.from);
         return;
@@ -428,14 +430,14 @@ export class ReviewPanelView extends ItemView {
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
 
-    const header = card.createDiv({ cls: "kcm-card-header" });
+    const header = card.createDiv({ cls: "tc-card-header" });
     let line = 1;
     for (let i = 0; i < n.from && i < source.length; i++) {
       if (source.charCodeAt(i) === 10) line++;
     }
-    header.createDiv({ cls: "kcm-line-ref", text: `Highlight · Line ${line}` });
+    header.createDiv({ cls: "tc-line-ref", text: `Highlight · Line ${line}` });
     const toggle = header.createEl("button", {
-      cls: "kcm-card-toggle kcm-icon-btn",
+      cls: "tc-card-toggle tc-icon-btn",
       attr: { "aria-label": "Toggle highlight" },
     });
     setIcon(toggle, isCollapsed ? "chevron-right" : "chevron-down");
@@ -445,16 +447,16 @@ export class ReviewPanelView extends ItemView {
     });
 
     const previewText = n.text.split(/\r?\n/, 1)[0].trim();
-    const preview = card.createDiv({ cls: "kcm-card-preview" });
+    const preview = card.createDiv({ cls: "tc-card-preview" });
     preview.setText(previewText || "(empty)");
 
-    const body = card.createDiv({ cls: "kcm-card-body" });
-    const diff = body.createDiv({ cls: "kcm-diff" });
-    const diffBody = diff.createDiv({ cls: "kcm-diff-highlight" });
+    const body = card.createDiv({ cls: "tc-card-body" });
+    const diff = body.createDiv({ cls: "tc-diff" });
+    const diffBody = diff.createDiv({ cls: "tc-diff-highlight" });
     this.renderMarkdownInto(diffBody, n.text, file.path);
-    const actions = body.createDiv({ cls: "kcm-card-actions" });
+    const actions = body.createDiv({ cls: "tc-card-actions" });
     const removeBtn = actions.createEl("button", {
-      cls: "kcm-btn-reject",
+      cls: "tc-btn-reject",
       text: "Remove highlight",
     });
     removeBtn.addEventListener("click", async () => {
@@ -468,12 +470,12 @@ export class ReviewPanelView extends ItemView {
     accept: () => SourceEdit,
     reject: () => SourceEdit,
   ): void {
-    const actions = card.createDiv({ cls: "kcm-card-actions" });
-    const acceptBtn = actions.createEl("button", { cls: "kcm-btn-accept", text: "Accept" });
+    const actions = card.createDiv({ cls: "tc-card-actions" });
+    const acceptBtn = actions.createEl("button", { cls: "tc-btn-accept", text: "Accept" });
     acceptBtn.addEventListener("click", async () => {
       await this.host.applyEdits(file, [accept()]);
     });
-    const rejectBtn = actions.createEl("button", { cls: "kcm-btn-reject", text: "Reject" });
+    const rejectBtn = actions.createEl("button", { cls: "tc-btn-reject", text: "Reject" });
     rejectBtn.addEventListener("click", async () => {
       await this.host.applyEdits(file, [reject()]);
     });
@@ -490,7 +492,7 @@ export class ReviewPanelView extends ItemView {
       if (source.charCodeAt(i) === 10) line++;
     }
     const text = prefix ? `${prefix} · Line ${line}` : `Line ${line}`;
-    card.createDiv({ cls: "kcm-line-ref", text });
+    card.createDiv({ cls: "tc-line-ref", text });
   }
 
   private renderThreadHeader(
@@ -500,24 +502,24 @@ export class ReviewPanelView extends ItemView {
     threadNumber: number,
     root: CommentNode,
   ): void {
-    const header = card.createDiv({ cls: "kcm-thread-header" });
+    const header = card.createDiv({ cls: "tc-thread-header" });
 
     let line = 1;
     for (let i = 0; i < thread.from && i < source.length; i++) {
       if (source.charCodeAt(i) === 10) line++;
     }
-    header.createDiv({ cls: "kcm-line-ref", text: `#${threadNumber} · Line ${line}` });
+    header.createDiv({ cls: "tc-line-ref", text: `#${threadNumber} · Line ${line}` });
 
     const replyCount = thread.replyIndexes.length;
     if (replyCount > 0) {
       header.createSpan({
-        cls: "kcm-thread-reply-count",
+        cls: "tc-thread-reply-count",
         text: `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`,
       });
     }
 
     const toggle = header.createEl("button", {
-      cls: "kcm-card-toggle kcm-thread-toggle kcm-icon-btn",
+      cls: "tc-card-toggle tc-thread-toggle tc-icon-btn",
       attr: { "aria-label": "Toggle thread" },
     });
     const isCollapsed = this.collapsedCards.has(thread.from);
@@ -528,7 +530,7 @@ export class ReviewPanelView extends ItemView {
     });
 
     const previewText = root.text.split(/\r?\n/, 1)[0].trim();
-    const preview = card.createDiv({ cls: "kcm-thread-preview" });
+    const preview = card.createDiv({ cls: "tc-thread-preview" });
     preview.setText(previewText || "(empty)");
   }
 
@@ -537,11 +539,11 @@ export class ReviewPanelView extends ItemView {
     if (willCollapse) this.collapsedCards.add(offset);
     else this.collapsedCards.delete(offset);
     const card = this.contentEl.querySelector(
-      `[data-kcm-card-offset="${offset}"]`,
+      `[data-tc-card-offset="${offset}"]`,
     ) as HTMLElement | null;
     if (!card) return;
-    card.toggleClass("kcm-card-collapsed", willCollapse);
-    const toggle = card.querySelector(".kcm-card-toggle") as HTMLElement | null;
+    card.toggleClass("tc-card-collapsed", willCollapse);
+    const toggle = card.querySelector(".tc-card-toggle") as HTMLElement | null;
     if (toggle) setIcon(toggle, willCollapse ? "chevron-right" : "chevron-down");
   }
 

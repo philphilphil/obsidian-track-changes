@@ -11,16 +11,17 @@ import { EditorView } from "@codemirror/view";
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
 import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import { parse } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import {
   DEFAULT_SETTINGS,
-  KissCriticMarkupSettingsTab,
-  type KissCriticMarkupSettings,
+  TrackChangesCriticMarkupSettingsTab,
+  type TrackChangesCriticMarkupSettings,
 } from "./settings";
 
-export default class KissCriticMarkupPlugin extends Plugin {
-  settings!: KissCriticMarkupSettings;
+export default class TrackChangesCriticMarkupPlugin extends Plugin {
+  settings!: TrackChangesCriticMarkupSettings;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -75,7 +76,7 @@ export default class KissCriticMarkupPlugin extends Plugin {
     );
 
     // Settings tab.
-    this.addSettingTab(new KissCriticMarkupSettingsTab(this.app, this));
+    this.addSettingTab(new TrackChangesCriticMarkupSettingsTab(this.app, this));
 
     // Open panel automatically after layout is ready, if not already.
     this.app.workspace.onLayoutReady(() => {
@@ -164,6 +165,9 @@ export default class KissCriticMarkupPlugin extends Plugin {
   private async applyEditsToFile(file: TFile, edits: SourceEdit[]): Promise<void> {
     if (edits.length === 0) return;
     const editor = this.findEditorForFile(file);
+    // `editor.cm` is undocumented but stable across Obsidian releases; it
+    // exposes the underlying CM6 EditorView so our dispatch coalesces with
+    // the user's normal undo stack.
     const cm = editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
     const currentSource = cm
       ? cm.state.doc.toString()
@@ -228,6 +232,7 @@ export default class KissCriticMarkupPlugin extends Plugin {
   }
 
   private scrollEditor(editor: Editor, offset: number, length: number): void {
+    // See applyEditsToFile for the rationale on accessing `editor.cm`.
     const cm = (editor as unknown as { cm?: EditorView }).cm;
     if (cm) {
       cm.dispatch({
@@ -246,7 +251,7 @@ export default class KissCriticMarkupPlugin extends Plugin {
   // ---- finalize ----
 
   private async runFinalize(file: TFile): Promise<void> {
-    const source = await this.app.vault.read(file);
+    const source = await this.app.vault.cachedRead(file);
     new FinalizeModal(
       this.app,
       file,
@@ -259,8 +264,7 @@ export default class KissCriticMarkupPlugin extends Plugin {
   // ---- delete all "ignore"/"done" threads ----
 
   private async deleteResolvedThreads(file: TFile): Promise<void> {
-    const source = await this.app.vault.read(file);
-    const { parse } = await import("./parser");
+    const source = await this.app.vault.cachedRead(file);
     const parsed = parse(source);
     const edits: SourceEdit[] = [];
     for (const t of parsed.threads) {

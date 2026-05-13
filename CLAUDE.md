@@ -45,7 +45,7 @@ The "delete all resolved threads" command sweeps threads whose reply matches `/^
 
 ### Settings
 
-`src/settings.ts` holds `KissCriticMarkupSettings` (note the legacy "Kiss" prefix in identifiers — the plugin was renamed; don't rename the symbols casually, they're tied to `loadData()` persisted state). Defaults are merged shallowly except `finalize` which is merged one level deep — preserve that when adding nested setting groups.
+`src/settings.ts` holds `TrackChangesSettings`. The shape of this object is persisted via `loadData()` / `saveData()` — if you rename a key, write a migration in `loadSettings()` so existing users don't lose their config. Defaults are merged shallowly except `finalize`, which is merged one level deep — preserve that when adding nested setting groups.
 
 ## Conventions
 
