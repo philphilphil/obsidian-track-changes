@@ -2,8 +2,9 @@
 //
 // Reading mode is the rendered HTML view. We walk text nodes, find any
 // CriticMarkup syntax, and replace it with appropriate inline elements:
-//   - Comments: tiny icon — name initial for named authors, speech-bubble
-//     for unnamed. Clicking does nothing (user switches to edit mode).
+//   - Comments: tiny icon — ⓘ tinted by the author's hue for named
+//     authors, speech-bubble for unnamed. Clicking does nothing (user
+//     switches to edit mode).
 //   - Additions: depending on settings, show accepted form or styled.
 //   - Deletions: hidden (accepted), or styled strikethrough (raw).
 //   - Substitutions: show the new text (accepted), or both sides (raw).
