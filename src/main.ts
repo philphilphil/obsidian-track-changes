@@ -32,7 +32,6 @@ export default class KissCriticMarkupPlugin extends Plugin {
     this.registerEditorExtension(
       criticDecorationsExtension({
         onClick: (offset) => this.handleInlineClick(offset),
-        getAiPrefix: () => this.settings.aiPrefix,
       }),
     );
 
@@ -40,7 +39,6 @@ export default class KissCriticMarkupPlugin extends Plugin {
     this.registerMarkdownPostProcessor(
       makeReadingPostProcessor(() => ({
         suggestions: this.settings.readingMode,
-        aiPrefix: this.settings.aiPrefix,
       })),
     );
 
@@ -114,7 +112,6 @@ export default class KissCriticMarkupPlugin extends Plugin {
       },
       applyEdits: async (file, edits) => this.applyEditsToFile(file, edits),
       revealOffset: (file, offset, length) => this.revealOffsetInEditor(file, offset, length),
-      getAiPrefix: () => this.settings.aiPrefix,
     };
     return new ReviewPanelView(leaf, host);
   }
@@ -255,7 +252,6 @@ export default class KissCriticMarkupPlugin extends Plugin {
       file,
       source,
       this.settings.finalize,
-      this.settings.aiPrefix,
       async (edits) => this.applyEditsToFile(file, edits),
     ).open();
   }
@@ -265,15 +261,15 @@ export default class KissCriticMarkupPlugin extends Plugin {
   private async deleteResolvedThreads(file: TFile): Promise<void> {
     const source = await this.app.vault.read(file);
     const { parse } = await import("./parser");
-    const parsed = parse(source, { aiPrefix: this.settings.aiPrefix });
+    const parsed = parse(source);
     const edits: SourceEdit[] = [];
     for (const t of parsed.threads) {
-      // A thread is "resolved" if it has at least one reply whose text is
-      // a recognised resolution marker. The reply is human-authored.
+      // A thread is "resolved" if any reply's text is a recognised
+      // resolution marker, regardless of who wrote it. (A self-tagged
+      // reply like {>>Phil: ignore<<} still resolves.)
       const replies = t.replyIndexes.map((i) => parsed.nodes[i]);
       const resolved = replies.some((r) => {
         if (r.kind !== "comment") return false;
-        if (r.author !== "human") return false;
         return /^(ignore|won['’]?t fix|wontfix|done|resolved)$/i.test(r.text.trim());
       });
       if (resolved) {

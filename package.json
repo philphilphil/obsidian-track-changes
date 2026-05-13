@@ -11,7 +11,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "typecheck": "tsc -noEmit -skipLibCheck",
-    "test": "node test/parser.test.mjs && node test/parser.edge.test.mjs && node test/operations.test.mjs && node test/finalize.test.mjs && node test/rebase.test.mjs"
+    "test": "node test/parser.test.mjs && node test/parser.edge.test.mjs && node test/operations.test.mjs && node test/finalize.test.mjs && node test/rebase.test.mjs && node test/authors.test.mjs"
   },
   "keywords": [],
   "author": "Phil",
