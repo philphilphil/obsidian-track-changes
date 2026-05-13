@@ -11,7 +11,7 @@ import { build } from "esbuild";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const out = await build({
   entryPoints: [resolve(__dirname, "../src/parser.ts")],
-  bundle: false,
+  bundle: true,
   format: "esm",
   target: "es2018",
   write: false,
@@ -34,35 +34,55 @@ function test(name, fn) {
 
 console.log("parser:");
 
-test("recognises a single AI-prefixed comment with default prefix", () => {
+test("recognises a Name: prefix as the author", () => {
   const r = parse("hello {>>AI: nice<<} world");
   assert.equal(r.nodes.length, 1);
   assert.equal(r.nodes[0].kind, "comment");
-  assert.equal(r.nodes[0].author, "ai");
+  assert.equal(r.nodes[0].authorName, "AI");
   assert.equal(r.nodes[0].text, "nice");
   assert.equal(r.threads.length, 1);
 });
 
-test("aiPrefix option lets the user pick a different marker", () => {
-  const r = parse("hello {>>Claude: nice<<} world", { aiPrefix: "Claude" });
-  assert.equal(r.nodes[0].author, "ai");
-  assert.equal(r.nodes[0].text, "nice");
-  // With default prefix, the same input is read as human.
-  const r2 = parse("hello {>>Claude: nice<<} world");
-  assert.equal(r2.nodes[0].author, "human");
+test("preserves original casing of the captured name", () => {
+  const r = parse("{>>Claude: nice<<}");
+  assert.equal(r.nodes[0].authorName, "Claude");
+  const r2 = parse("{>>claude: nice<<}");
+  assert.equal(r2.nodes[0].authorName, "claude");
 });
 
-test("aiPrefix matching is case-insensitive", () => {
-  const r = parse("{>>ai: hi<<}");
-  assert.equal(r.nodes[0].author, "ai");
-  const r2 = parse("{>>aI:hi<<}");
-  assert.equal(r2.nodes[0].author, "ai");
+test("accepts hyphenated names like GPT-4", () => {
+  const r = parse("{>>GPT-4: hi<<}");
+  assert.equal(r.nodes[0].authorName, "GPT-4");
+  assert.equal(r.nodes[0].text, "hi");
 });
 
-test("unprefixed comment is human", () => {
+test("unprefixed comment has null authorName", () => {
   const r = parse("hello {>>done<<} world");
-  assert.equal(r.nodes[0].author, "human");
+  assert.equal(r.nodes[0].authorName, null);
   assert.equal(r.nodes[0].text, "done");
+});
+
+test("multi-word fake prefix is not an author", () => {
+  // The whole body becomes the comment text; authorName is null.
+  const r = parse("{>>asdjak adakjds ajksdjads : oops<<}");
+  assert.equal(r.nodes[0].authorName, null);
+  assert.equal(r.nodes[0].text, "asdjak adakjds ajksdjads : oops");
+});
+
+test("digit-leading prefix is not an author", () => {
+  const r = parse("{>>4chan: hi<<}");
+  assert.equal(r.nodes[0].authorName, null);
+});
+
+test("empty name with bare colon is not an author", () => {
+  const r = parse("{>>: oops<<}");
+  assert.equal(r.nodes[0].authorName, null);
+});
+
+test("TODO: is an accepted false positive (documented)", () => {
+  // Cosmetically a faux author chip; not a bug.
+  const r = parse("{>>TODO: fix<<}");
+  assert.equal(r.nodes[0].authorName, "TODO");
 });
 
 test("adjacent comments form one thread", () => {
@@ -83,13 +103,18 @@ test("inline whitespace between adjacent comments still threads", () => {
 });
 
 test("comments separated by prose on the same line are separate threads", () => {
-  // Regression: previously the heuristic only forbade newlines in the gap,
-  // so two comments on the same paragraph-line with prose between them
-  // merged into one thread and the inline chip swallowed the prose.
   const r = parse("foo {>>Claude: a<<} bar baz {>>Claude: b<<} qux");
   assert.equal(r.threads.length, 2);
   assert.equal(r.threads[0].replyIndexes.length, 0);
   assert.equal(r.threads[1].replyIndexes.length, 0);
+});
+
+test("multi-author thread (Claude root, GPT reply) preserves both names", () => {
+  const r = parse("{>>Claude: hi<<}{>>GPT: agreed<<}");
+  assert.equal(r.threads.length, 1);
+  assert.equal(r.threads[0].replyIndexes.length, 1);
+  assert.equal(r.nodes[r.threads[0].rootIndex].authorName, "Claude");
+  assert.equal(r.nodes[r.threads[0].replyIndexes[0]].authorName, "GPT");
 });
 
 test("parses addition", () => {
@@ -136,7 +161,6 @@ test("multi-message thread retains correct ranges", () => {
 test("threadAtOffset finds the right thread", () => {
   const src = "x {>>Claude: a<<}\ny {>>Claude: b<<}";
   const r = parse(src);
-  // offset within second comment
   const off = src.indexOf("{>>Claude: b");
   const t = threadAtOffset(r, off);
   assert.equal(t, 1);
@@ -149,15 +173,13 @@ test("nodeAtOffset finds the right node", () => {
   assert.equal(nodeAtOffset(r, off), 0);
 });
 
-test("AI prefix is whitespace-tolerant", () => {
+test("prefix is whitespace-tolerant", () => {
   const r = parse("{>>  AI:hi<<}");
-  assert.equal(r.nodes[0].author, "ai");
+  assert.equal(r.nodes[0].authorName, "AI");
   assert.equal(r.nodes[0].text, "hi");
 });
 
 test("no overlap with neighbouring forms", () => {
-  // A substitution sometimes embeds patterns that look like other forms.
-  // Make sure we don't double-count.
   const r = parse("{~~x++y~>z--w~~}");
   assert.equal(r.nodes.length, 1);
   assert.equal(r.nodes[0].kind, "substitution");

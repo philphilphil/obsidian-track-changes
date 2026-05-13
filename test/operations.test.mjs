@@ -123,7 +123,7 @@ test("appendReply inserts adjacent without prefix", () => {
   const r2 = parse(out);
   assert.equal(r2.threads.length, 1);
   assert.equal(r2.threads[0].replyIndexes.length, 1);
-  assert.equal(r2.nodes[1].author, "human");
+  assert.equal(r2.nodes[1].authorName, null);
 });
 
 test("appendReply attaches after the last message of an existing thread", () => {

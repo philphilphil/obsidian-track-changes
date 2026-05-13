@@ -8,7 +8,7 @@ import { build } from "esbuild";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const out = await build({
   entryPoints: [resolve(__dirname, "../src/parser.ts")],
-  bundle: false,
+  bundle: true,
   format: "esm",
   target: "es2018",
   write: false,
@@ -36,7 +36,7 @@ test("empty comment body {>><<}", () => {
   assert.equal(r.nodes.length, 1);
   assert.equal(r.nodes[0].kind, "comment");
   assert.equal(r.nodes[0].text, "");
-  assert.equal(r.nodes[0].author, "human");
+  assert.equal(r.nodes[0].authorName, null);
 });
 
 test("empty addition body {++++}", () => {
