@@ -79,16 +79,38 @@ Add ~8 distinct hues, exposed as CSS variables in `styles.css`:
 
 Background and accent are derived via `hsl(var(--kcm-author-hue-N), ...)` so they pick up reasonable saturation/lightness without per-hue tuning.
 
-A hash function lives in a small helper at `src/authors.ts`:
+A hash function lives in a small helper at `src/authors.ts`. Before hashing, a lookup table of well-known LLM names pins the recognisable ones to brand-ish hues — Claude is always red, GPT always green, etc. — so the same model gets the same color in every document, regardless of which other authors are present. Unknown names fall through to the hash.
 
 ```ts
+const KNOWN_AUTHORS: Record<string, number> = {
+  // index → hue defined in styles.css
+  claude: 7,            // red
+  gpt: 2,
+  "gpt-4": 2,
+  "gpt-4o": 2,
+  "gpt-5": 2,
+  chatgpt: 2,
+  openai: 2,            // green
+  gemini: 0,
+  "gemini-pro": 0,
+  bard: 0,              // blue
+  copilot: 1,
+  "github-copilot": 1,  // purple
+  mistral: 3,
+  mixtral: 3,           // orange
+  llama: 5,             // teal
+};
+
 export function authorHueIndex(name: string): number {
-  let h = 0;
   const lower = name.toLowerCase();
+  if (lower in KNOWN_AUTHORS) return KNOWN_AUTHORS[lower];
+  let h = 0;
   for (let i = 0; i < lower.length; i++) h = (h * 31 + lower.charCodeAt(i)) >>> 0;
   return h % 8;
 }
 ```
+
+The known-authors map is intentionally small and exact-match on lowercased name (no prefix/suffix matching). If a user wants their `gpt-4-turbo` agent to share GPT's hue, they can either name it `gpt` or we add the variant to the table. The map is in source, not in settings — this isn't a user-configurable registry, just tasteful defaults.
 
 ### Panel (`src/panel/view.ts`)
 
@@ -129,6 +151,13 @@ Update existing assertions that read `author === "ai" | "human"`. Remove any tes
 
 Other test files (`test/*.mjs`) that import or assert on the old shape get the same mechanical update.
 
+A small `test/authors.test.mjs` covers the hue helper:
+
+- `authorHueIndex("Claude") === 7` and `authorHueIndex("claude") === 7` (known + case-insensitive).
+- `authorHueIndex("gpt-4o") === 2` (known variant).
+- `authorHueIndex("Phil") === authorHueIndex("Phil")` (deterministic).
+- `authorHueIndex("Phil")` is in `0..7` (palette range).
+
 ## Documentation
 
 `examples/CLAUDE.md` — replace the existing "configured AI prefix" guidance with: "Prefix each of your comments with `<Name>:` so the user knows it's from you, e.g. `{>>Claude: this section feels long<<}`. The user replies without any prefix." Drop any references to a configurable single prefix.
@@ -138,5 +167,5 @@ Other test files (`test/*.mjs`) that import or assert on the old shape get the s
 ## Risk / open questions
 
 - **`TODO:` false positives.** Mild. Documented as an accepted edge case. If it becomes annoying we can add a small denylist later.
-- **Color collisions on small palette.** With 8 hues, two authors will collide if their hashes land on the same index. With typical 2–4 authors per document it's unlikely; if it happens the user can pick different names. A per-author color override is deferred.
+- **Color collisions on small palette.** With 8 hues, two authors will collide if their hashes land on the same index. With typical 2–4 authors per document it's unlikely; the known-author table additionally pins major LLMs to fixed hues so the most common combinations (Claude + GPT, Claude + Gemini, etc.) never collide. If it still happens for two unknown names, the user can rename. A user-configurable per-author color override is deferred.
 - **Hue accessibility.** Hues alone aren't enough for color-blind readers — the author name label always appears next to the chip/bubble, so identity is never color-only.
