@@ -213,6 +213,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       return false;
     }
     this.showDroppedEdits(processDropped);
+    new Notice("Updated file outside the editor undo history.");
     this.getReviewView()?.refreshFromSource(file, next);
     return true;
   }

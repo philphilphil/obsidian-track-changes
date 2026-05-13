@@ -21,6 +21,15 @@ export interface SourceEdit {
   before?: string;
 }
 
+const COMMENT_CLOSE = "<<}";
+
+export function validateReplyText(text: string): string | null {
+  if (text.includes(COMMENT_CLOSE)) {
+    return "Replies cannot contain the CriticMarkup comment closing marker <<}.";
+  }
+  return null;
+}
+
 /** Apply a list of edits to a source string. Edits must be non-overlapping. */
 export function applyEdits(source: string, edits: SourceEdit[]): string {
   const sorted = [...edits].sort((a, b) => b.from - a.from);
@@ -165,6 +174,9 @@ export function appendReply(
   parsed: ParseResult,
   text: string,
 ): SourceEdit {
+  const validationError = validateReplyText(text);
+  if (validationError) throw new Error(validationError);
+
   const lastIdx =
     thread.replyIndexes.length > 0
       ? thread.replyIndexes[thread.replyIndexes.length - 1]

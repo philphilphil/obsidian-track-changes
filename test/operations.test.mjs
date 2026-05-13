@@ -30,6 +30,7 @@ const {
   acceptSubstitution,
   rejectSubstitution,
   appendReply,
+  validateReplyText,
   deleteCommentNode,
   deleteThread,
   removeHighlight,
@@ -132,6 +133,19 @@ test("appendReply attaches after the last message of an existing thread", () => 
   const edit = appendReply(src, r.threads[0], r, "actually no");
   const out = applyEdits(src, [edit]);
   assert.equal(out, "x {>>Claude: a<<}{>>ignore<<}{>>actually no<<} y");
+});
+
+test("appendReply rejects comment closing delimiters in reply text", () => {
+  const src = "x {>>Claude: a<<} y";
+  const r = parse(src);
+  assert.equal(
+    validateReplyText("please keep <<} and continue"),
+    "Replies cannot contain the CriticMarkup comment closing marker <<}.",
+  );
+  assert.throws(
+    () => appendReply(src, r.threads[0], r, "please keep <<} and continue"),
+    /CriticMarkup comment closing marker/,
+  );
 });
 
 test("applyEdits handles multiple non-overlapping edits", () => {

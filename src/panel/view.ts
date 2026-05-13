@@ -11,6 +11,8 @@
 
 import {
   ItemView,
+  Modal,
+  Notice,
   WorkspaceLeaf,
   TFile,
   debounce,
@@ -40,6 +42,7 @@ import {
   deleteCommentNode,
   deleteThread,
   removeHighlight,
+  validateReplyText,
   type SourceEdit,
 } from "../operations";
 
@@ -278,6 +281,12 @@ export class ReviewPanelView extends ItemView {
       setIcon(del, "trash-2");
       del.addEventListener("click", async (e) => {
         e.stopPropagation();
+        const confirmed = await this.confirmDestructiveAction(
+          "Delete message",
+          "Remove this comment message from the note.",
+          "Delete",
+        );
+        if (!confirmed) return;
         await this.host.applyEdits(file, [deleteCommentNode(c)]);
       });
 
@@ -303,6 +312,11 @@ export class ReviewPanelView extends ItemView {
     const submit = async () => {
       const text = ta.value.trim();
       if (!text) return;
+      const validationError = validateReplyText(text);
+      if (validationError) {
+        new Notice(validationError);
+        return;
+      }
       this.replyDrafts.delete(thread.from);
       const edit = appendReply(this.currentSource, thread, parsed, text);
       await this.host.applyEdits(file, [edit]);
@@ -315,6 +329,12 @@ export class ReviewPanelView extends ItemView {
       text: "Delete thread",
     });
     deleteThreadBtn.addEventListener("click", async () => {
+      const confirmed = await this.confirmDestructiveAction(
+        "Delete thread",
+        "Remove this entire comment thread from the note.",
+        "Delete thread",
+      );
+      if (!confirmed) return;
       await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
     });
   }
@@ -542,5 +562,61 @@ export class ReviewPanelView extends ItemView {
 
   private renderTextInto(el: HTMLElement, text: string): void {
     el.setText(text);
+  }
+
+  private confirmDestructiveAction(
+    title: string,
+    message: string,
+    confirmText: string,
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      new ConfirmActionModal(this.app, title, message, confirmText, resolve).open();
+    });
+  }
+}
+
+class ConfirmActionModal extends Modal {
+  private didResolve = false;
+
+  constructor(
+    app: App,
+    private readonly title: string,
+    private readonly message: string,
+    private readonly confirmText: string,
+    private readonly resolve: (confirmed: boolean) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    this.titleEl.setText(this.title);
+    contentEl.createEl("p", { text: this.message });
+
+    const buttons = contentEl.createDiv({ cls: "tc-confirm-buttons" });
+    const cancel = buttons.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => {
+      this.finish(false);
+    });
+
+    const confirm = buttons.createEl("button", {
+      cls: "mod-warning",
+      text: this.confirmText,
+    });
+    confirm.addEventListener("click", () => {
+      this.finish(true);
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.didResolve) this.resolve(false);
+  }
+
+  private finish(confirmed: boolean): void {
+    this.didResolve = true;
+    this.resolve(confirmed);
+    this.close();
   }
 }
