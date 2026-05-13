@@ -2,25 +2,19 @@
 //
 // Reading mode is the rendered HTML view. We walk text nodes, find any
 // CriticMarkup syntax, and replace it with appropriate inline elements:
-//   - Comments: tiny icon (clicking does nothing for now — user can switch
-//     to editing mode to open the panel).
-//   - Additions: depending on settings, show accepted form (the inserted
-//     text, plain) or the markup styled.
+//   - Comments: tiny icon — name initial for named authors, speech-bubble
+//     for unnamed. Clicking does nothing (user switches to edit mode).
+//   - Additions: depending on settings, show accepted form or styled.
 //   - Deletions: hidden (accepted), or styled strikethrough (raw).
 //   - Substitutions: show the new text (accepted), or both sides (raw).
 //   - Highlights: render content with highlight styling regardless.
 
 import type { MarkdownPostProcessorContext } from "obsidian";
+import { AUTHOR_RE, authorHueIndex } from "./authors";
 
 export interface ReadingOptions {
-  /** How to render suggestions: as their accepted form (publish preview) or raw markup. */
+  /** How to render suggestions: accepted form (publish preview) or raw markup. */
   suggestions: "accepted" | "raw";
-  /** AI-author prefix; comments starting with `<prefix>:` render with the AI style. Case-insensitive. */
-  aiPrefix: string;
-}
-
-function escapeForRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const COMBINED_RE = /\{>>([\s\S]*?)<<\}|\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{~~([\s\S]*?)~>([\s\S]*?)~~\}|\{==([\s\S]*?)==\}/g;
@@ -47,7 +41,6 @@ export function makeReadingPostProcessor(getOpts: () => ReadingOptions) {
       if (node.nodeValue && !isInsideCode(node) && COMBINED_RE.test(node.nodeValue)) {
         textNodes.push(node as Text);
       }
-      // Reset regex state — `test` is stateful with the `g` flag.
       COMBINED_RE.lastIndex = 0;
       node = walker.nextNode();
     }
@@ -79,13 +72,17 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
   const [full, comment, addition, deletion, subOld, subNew, highlight] = m;
 
   if (comment !== undefined) {
-    const prefixRe = new RegExp(`^\\s*${escapeForRegex(opts.aiPrefix)}\\s*:\\s*`, "i");
-    const isAi = prefixRe.test(comment);
+    const authorMatch = comment.match(AUTHOR_RE);
+    const authorName = authorMatch ? authorMatch[1] : null;
+    const body = authorMatch ? comment.slice(authorMatch[0].length) : comment;
     const span = document.createElement("span");
-    span.className = `kcm-rm-comment kcm-rm-comment-${isAi ? "ai" : "human"}`;
+    span.className = `kcm-rm-comment kcm-rm-comment-${authorName ? "named" : "you"}`;
+    if (authorName) {
+      span.setAttribute("data-author-hue", String(authorHueIndex(authorName)));
+    }
     span.setAttribute("aria-label", "Comment (switch to edit mode to review)");
-    span.title = comment.replace(prefixRe, "");
-    span.textContent = isAi ? "ⓘ" : "💬";
+    span.title = authorName ? `${authorName}: ${body}` : body;
+    span.textContent = authorName ? "ⓘ" : "💬";
     return span;
   }
   if (addition !== undefined) {
@@ -129,6 +126,5 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
     span.textContent = highlight;
     return span;
   }
-  // Fallback: leave as-is.
   return document.createTextNode(full);
 }
