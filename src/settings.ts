@@ -7,12 +7,6 @@ export interface KissCriticMarkupSettings {
   panelSide: "left" | "right";
   /** How reading mode renders suggestions. */
   readingMode: "accepted" | "raw";
-  /**
-   * Prefix that marks a comment as AI-authored. Case-insensitive. A comment
-   * starting with `<prefix>:` is treated as AI; everything else is treated as
-   * a human reply. Example values: "AI", "Claude", "GPT", "Gemini".
-   */
-  aiPrefix: string;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -20,7 +14,6 @@ export interface KissCriticMarkupSettings {
 export const DEFAULT_SETTINGS: KissCriticMarkupSettings = {
   panelSide: "right",
   readingMode: "accepted",
-  aiPrefix: "AI",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -46,21 +39,6 @@ export class KissCriticMarkupSettingsTab extends PluginSettingTab {
           .setValue(this.plugin.settings.panelSide)
           .onChange(async (v) => {
             this.plugin.settings.panelSide = v as "left" | "right";
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("AI author prefix")
-      .setDesc(
-        "Comments starting with `<prefix>:` are treated as AI-authored; others are treated as human replies. Case-insensitive. Tell your agent to use the same prefix.",
-      )
-      .addText((t) =>
-        t
-          .setPlaceholder("AI")
-          .setValue(this.plugin.settings.aiPrefix)
-          .onChange(async (v) => {
-            this.plugin.settings.aiPrefix = v.trim() || "AI";
             await this.plugin.saveSettings();
           }),
       );
