@@ -158,7 +158,8 @@
   padding: 1px 6px;
   font-variant-numeric: tabular-nums;
 }
-.kcm-thread-preview {
+.kcm-thread-preview,
+.kcm-card-preview {
   display: none;
   font-size: 0.9em;
   color: var(--text-muted);
@@ -169,12 +170,38 @@
 .kcm-card-collapsed {
   gap: 4px;
 }
-.kcm-card-collapsed .kcm-thread-preview {
+.kcm-card-collapsed .kcm-thread-preview,
+.kcm-card-collapsed .kcm-card-preview {
   display: block;
 }
 .kcm-card-collapsed .kcm-messages,
-.kcm-card-collapsed .kcm-reply {
+.kcm-card-collapsed .kcm-reply,
+.kcm-card-collapsed .kcm-card-body {
   display: none;
+}
+.kcm-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kcm-card-header .kcm-line-ref {
+  flex: 1;
+}
+.kcm-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.kcm-card-toggle:hover {
+  color: var(--text-normal);
+}
+.kcm-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .kcm-messages {
   display: flex;
@@ -325,6 +352,12 @@
   color: var(--text-muted);
   font-size: 0.85em;
   text-align: center;
+}
+.kcm-diff-highlight {
+  background: rgba(252, 211, 77, 0.35);
+  border-left: 3px solid rgba(252, 211, 77, 0.8);
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 
 /* ---------- Reading mode ---------- */

@@ -129,6 +129,12 @@ export function rejectSubstitution(node: CriticNode): SourceEdit {
   return { from: node.from, to: node.to, insert: node.oldText, expected: node.raw };
 }
 
+/** Remove a highlight: strip the {==…==} wrapper, keep the inner text. */
+export function removeHighlight(node: CriticNode): SourceEdit {
+  if (node.kind !== "highlight") throw new Error("removeHighlight: wrong node kind");
+  return { from: node.from, to: node.to, insert: node.text, expected: node.raw };
+}
+
 /** Delete a single comment node (one message within a thread). */
 export function deleteCommentNode(node: CriticNode): SourceEdit {
   if (node.kind !== "comment") throw new Error("deleteCommentNode: wrong node kind");
@@ -221,9 +227,7 @@ export function finalizeEdits(
         );
         break;
       case "highlight":
-        if (opts.stripHighlights) {
-          edits.push({ from: n.from, to: n.to, insert: n.text, expected: n.raw });
-        }
+        if (opts.stripHighlights) edits.push(removeHighlight(n));
         break;
     }
   }

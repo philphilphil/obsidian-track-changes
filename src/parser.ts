@@ -5,7 +5,7 @@
 //   {++text++}        addition
 //   {--text--}        deletion
 //   {~~old~>new~~}    substitution
-//   {==text==}        highlight (parsed but not surfaced in UI; tolerated)
+//   {==text==}        highlight (review-panel card offers "Remove highlight")
 //
 // Thread rule: consecutive {>>...<<} blocks with only inline whitespace
 // (no blank line) between them in the same paragraph form a thread.

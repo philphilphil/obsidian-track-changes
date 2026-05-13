@@ -26,6 +26,7 @@ import {
   type AdditionNode,
   type DeletionNode,
   type SubstitutionNode,
+  type HighlightNode,
   type Thread,
   type ParseResult,
 } from "../parser";
@@ -39,6 +40,7 @@ import {
   appendReply,
   deleteCommentNode,
   deleteThread,
+  removeHighlight,
   type SourceEdit,
 } from "../operations";
 
@@ -62,7 +64,7 @@ export class ReviewPanelView extends ItemView {
   private currentSource = "";
   private rerender = debounce(() => this.refresh(), 200, true);
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
-  private collapsedThreads = new Set<number>(); // thread.from values that are collapsed
+  private collapsedCards = new Set<number>(); // card-offset values that are collapsed
   private markdownChildren: Component[] = [];
   // Bumped on every refresh() entry. Lets an in-flight refresh detect that a
   // newer one started while it was awaiting the file read, and bail before
@@ -122,7 +124,7 @@ export class ReviewPanelView extends ItemView {
     if (file !== this.currentFile) {
       this.currentFile = file;
       this.replyDrafts.clear();
-      this.collapsedThreads.clear();
+      this.collapsedCards.clear();
     }
     this.refresh();
   }
@@ -210,8 +212,9 @@ export class ReviewPanelView extends ItemView {
         this.renderDeletionCard(list, file, source, n);
       } else if (n.kind === "substitution") {
         this.renderSubstitutionCard(list, file, source, n);
+      } else if (n.kind === "highlight") {
+        this.renderHighlightCard(list, file, source, n);
       }
-      // highlights: not surfaced as cards
     }
   }
 
@@ -223,10 +226,14 @@ export class ReviewPanelView extends ItemView {
       suggestions: parsed.nodes.filter(
         (n) => n.kind === "addition" || n.kind === "deletion" || n.kind === "substitution",
       ).length,
+      highlights: parsed.nodes.filter((n) => n.kind === "highlight").length,
     };
     const parts: string[] = [];
     parts.push(`${counts.threads} ${counts.threads === 1 ? "comment" : "comments"}`);
     parts.push(`${counts.suggestions} ${counts.suggestions === 1 ? "suggestion" : "suggestions"}`);
+    if (counts.highlights > 0) {
+      parts.push(`${counts.highlights} ${counts.highlights === 1 ? "highlight" : "highlights"}`);
+    }
     header.createEl("div", { cls: "kcm-header-counts", text: parts.join(" · ") });
   }
 
@@ -240,14 +247,14 @@ export class ReviewPanelView extends ItemView {
   ): void {
     const card = list.createDiv({ cls: "kcm-card kcm-card-thread" });
     card.setAttr("data-kcm-card-offset", String(thread.from));
-    const isCollapsed = this.collapsedThreads.has(thread.from);
+    const isCollapsed = this.collapsedCards.has(thread.from);
     if (isCollapsed) card.addClass("kcm-card-collapsed");
 
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest(".kcm-thread-toggle")) return;
-      if (this.collapsedThreads.has(thread.from)) {
-        this.toggleThreadCollapsed(thread.from);
+      if (target.closest(".kcm-card-toggle")) return;
+      if (this.collapsedCards.has(thread.from)) {
+        this.toggleCardCollapsed(thread.from);
         return;
       }
       if (target.closest(".kcm-card-actions, .kcm-message, .kcm-reply, button, textarea, input"))
@@ -397,6 +404,62 @@ export class ReviewPanelView extends ItemView {
     );
   }
 
+  private renderHighlightCard(
+    list: HTMLElement,
+    file: TFile,
+    source: string,
+    n: HighlightNode,
+  ): void {
+    const card = list.createDiv({ cls: "kcm-card kcm-card-highlight" });
+    card.setAttr("data-kcm-card-offset", String(n.from));
+    const isCollapsed = this.collapsedCards.has(n.from);
+    if (isCollapsed) card.addClass("kcm-card-collapsed");
+
+    card.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".kcm-card-toggle")) return;
+      if (this.collapsedCards.has(n.from)) {
+        this.toggleCardCollapsed(n.from);
+        return;
+      }
+      if (target.closest("button")) return;
+      this.host.revealOffset(file, n.from, n.to - n.from);
+    });
+
+    const header = card.createDiv({ cls: "kcm-card-header" });
+    let line = 1;
+    for (let i = 0; i < n.from && i < source.length; i++) {
+      if (source.charCodeAt(i) === 10) line++;
+    }
+    header.createDiv({ cls: "kcm-line-ref", text: `Highlight · Line ${line}` });
+    const toggle = header.createEl("button", {
+      cls: "kcm-card-toggle kcm-icon-btn",
+      attr: { "aria-label": "Toggle highlight" },
+    });
+    setIcon(toggle, isCollapsed ? "chevron-right" : "chevron-down");
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleCardCollapsed(n.from);
+    });
+
+    const previewText = n.text.split(/\r?\n/, 1)[0].trim();
+    const preview = card.createDiv({ cls: "kcm-card-preview" });
+    preview.setText(previewText || "(empty)");
+
+    const body = card.createDiv({ cls: "kcm-card-body" });
+    const diff = body.createDiv({ cls: "kcm-diff" });
+    const diffBody = diff.createDiv({ cls: "kcm-diff-highlight" });
+    this.renderMarkdownInto(diffBody, n.text, file.path);
+    const actions = body.createDiv({ cls: "kcm-card-actions" });
+    const removeBtn = actions.createEl("button", {
+      cls: "kcm-btn-reject",
+      text: "Remove highlight",
+    });
+    removeBtn.addEventListener("click", async () => {
+      await this.host.applyEdits(file, [removeHighlight(n)]);
+    });
+  }
+
   private renderAcceptReject(
     card: HTMLElement,
     file: TFile,
@@ -452,14 +515,14 @@ export class ReviewPanelView extends ItemView {
     }
 
     const toggle = header.createEl("button", {
-      cls: "kcm-thread-toggle kcm-icon-btn",
+      cls: "kcm-card-toggle kcm-thread-toggle kcm-icon-btn",
       attr: { "aria-label": "Toggle thread" },
     });
-    const isCollapsed = this.collapsedThreads.has(thread.from);
+    const isCollapsed = this.collapsedCards.has(thread.from);
     setIcon(toggle, isCollapsed ? "chevron-right" : "chevron-down");
     toggle.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.toggleThreadCollapsed(thread.from);
+      this.toggleCardCollapsed(thread.from);
     });
 
     const previewText = root.text.split(/\r?\n/, 1)[0].trim();
@@ -467,16 +530,16 @@ export class ReviewPanelView extends ItemView {
     preview.setText(previewText || "(empty)");
   }
 
-  private toggleThreadCollapsed(offset: number): void {
-    const willCollapse = !this.collapsedThreads.has(offset);
-    if (willCollapse) this.collapsedThreads.add(offset);
-    else this.collapsedThreads.delete(offset);
+  private toggleCardCollapsed(offset: number): void {
+    const willCollapse = !this.collapsedCards.has(offset);
+    if (willCollapse) this.collapsedCards.add(offset);
+    else this.collapsedCards.delete(offset);
     const card = this.contentEl.querySelector(
       `[data-kcm-card-offset="${offset}"]`,
     ) as HTMLElement | null;
     if (!card) return;
     card.toggleClass("kcm-card-collapsed", willCollapse);
-    const toggle = card.querySelector(".kcm-thread-toggle") as HTMLElement | null;
+    const toggle = card.querySelector(".kcm-card-toggle") as HTMLElement | null;
     if (toggle) setIcon(toggle, willCollapse ? "chevron-right" : "chevron-down");
   }
 

@@ -32,6 +32,7 @@ const {
   appendReply,
   deleteCommentNode,
   deleteThread,
+  removeHighlight,
   finalizeEdits,
   DEFAULT_FINALIZE,
 } = ops;
@@ -89,6 +90,13 @@ test("rejectSubstitution keeps old text", () => {
   const r = parse(src);
   const out = applyEdits(src, [rejectSubstitution(r.nodes[0])]);
   assert.equal(out, "x old y");
+});
+
+test("removeHighlight strips the wrapper and keeps the text", () => {
+  const src = "x {==look here==} y";
+  const r = parse(src);
+  const out = applyEdits(src, [removeHighlight(r.nodes[0])]);
+  assert.equal(out, "x look here y");
 });
 
 test("deleteCommentNode removes one message of a thread", () => {
