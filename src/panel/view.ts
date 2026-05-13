@@ -125,7 +125,18 @@ export class ReviewPanelView extends ItemView {
     this.refresh();
   }
 
-  private async refresh(): Promise<void> {
+  /**
+   * Refresh the panel immediately using a known-current source string. Called
+   * by the host right after it dispatches edits into the editor, so the panel
+   * doesn't have to wait for Obsidian's editor->vault autosave (which can be
+   * ~2s) to repaint the cards.
+   */
+  refreshFromSource(file: TFile, source: string): void {
+    if (file !== this.currentFile) return;
+    void this.refresh(source);
+  }
+
+  private async refresh(preloadedSource?: string): Promise<void> {
     const seq = ++this.refreshSeq;
     const file = this.currentFile;
 
@@ -140,16 +151,26 @@ export class ReviewPanelView extends ItemView {
     }
 
     let source: string;
-    try {
-      source = await this.app.vault.read(file);
-    } catch {
+    if (preloadedSource !== undefined) {
+      source = preloadedSource;
+    } else {
+      try {
+        source = await this.app.vault.read(file);
+      } catch {
+        if (seq !== this.refreshSeq) return;
+        this.disposeMarkdownChildren();
+        this.contentEl.empty();
+        this.contentEl.createEl("p", { cls: "kcm-empty", text: "Could not read file." });
+        return;
+      }
       if (seq !== this.refreshSeq) return;
-      this.disposeMarkdownChildren();
-      this.contentEl.empty();
-      this.contentEl.createEl("p", { cls: "kcm-empty", text: "Could not read file." });
+    }
+
+    // Skip the rebuild if nothing changed — e.g. the delayed vault `modify`
+    // event after we already refreshed via refreshFromSource.
+    if (source === this.currentSource && this.contentEl.querySelector(".kcm-card-list, .kcm-empty")) {
       return;
     }
-    if (seq !== this.refreshSeq) return;
 
     this.currentSource = source;
     const parsed = parse(source, { aiPrefix: this.host.getAiPrefix() });

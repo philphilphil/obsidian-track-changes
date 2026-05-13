@@ -190,13 +190,18 @@ export default class KissCriticMarkupPlugin extends Plugin {
       cm.dispatch({
         changes: rebased.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
       });
+      this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
       return;
     }
     if (editor) {
-      editor.setValue(applyEdits(currentSource, rebased));
+      const next = applyEdits(currentSource, rebased);
+      editor.setValue(next);
+      this.getReviewView()?.refreshFromSource(file, next);
       return;
     }
-    await this.app.vault.modify(file, applyEdits(currentSource, rebased));
+    const next = applyEdits(currentSource, rebased);
+    await this.app.vault.modify(file, next);
+    this.getReviewView()?.refreshFromSource(file, next);
   }
 
   private findEditorForFile(file: TFile): Editor | null {
