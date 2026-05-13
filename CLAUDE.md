@@ -32,16 +32,16 @@ Entry point `src/main.ts` is the `Plugin` subclass. It wires four things into Ob
 
 ### Data flow: parse → edits → rebase → apply
 
-- `src/parser.ts` scans source text and emits a `ParseResult` with `nodes` (the five CriticMarkup kinds) and `threads` (adjacent `{>>…<<}` blocks group). Comments are tagged `author: "ai" | "human"` based on the configurable AI prefix. **Code blocks are skipped** — markup inside fences is left alone.
+- `src/parser.ts` scans source text and emits a `ParseResult` with `nodes` (the five CriticMarkup kinds) and `threads` (adjacent `{>>…<<}` blocks group). Comments expose `authorName: string | null` — the captured `<Name>:` prefix (original casing) or `null` if unprefixed. **Code blocks are skipped** — markup inside fences is left alone.
 - `src/operations.ts` turns user actions (accept, reject, reply, delete-thread, …) into `SourceEdit[]`. Each edit carries optional `expected` (text at `[from, to)`) and `before` (text immediately preceding `from`) as anchors.
 - `rebaseEdits` re-validates each edit against the *current* document right before write. If the doc drifted since parse (user typed, AI re-edited via another channel), it searches a ±200-char window for the `before+expected` anchor; non-unique matches are dropped rather than risk corrupting unrelated text. This is critical — never apply raw stale offsets.
 - `main.applyEditsToFile` prefers the live CM6 `EditorView.dispatch` (so changes coalesce with the user's undo stack), falls back to `Editor.setValue`, then to `vault.modify`.
 
 ### Threading
 
-A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank line) between them in the same paragraph. First is root, rest are replies. The `aiPrefix` (default `AI:`) is the *only* authorship signal — prefixed = AI, unprefixed = human reply. Treat this as a hard contract; don't add other heuristics.
+A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank line) between them in the same paragraph. First is root, rest are replies. Authorship is detected from a `<Name>:` prefix on each comment (single token, alpha-leading, ≤30 chars — see `src/authors.ts`). Comments without a recognised prefix render as "You" (the local user). Treat this as a hard contract; don't add other heuristics.
 
-The "delete all resolved threads" command sweeps threads whose human reply matches `/^(ignore|won't fix|wontfix|done|resolved)$/i`.
+The "delete all resolved threads" command sweeps threads whose reply matches `/^(ignore|won't fix|wontfix|done|resolved)$/i`, regardless of who wrote it.
 
 ### Settings
 

@@ -2,7 +2,7 @@
 
 Drop this file into a folder of your vault as `CLAUDE.md` (Claude Code), `AGENTS.md` (most other agents), or paste it as a system prompt. It tells the agent how to behave so its output works with the Track Changes plugin: insert findings as CriticMarkup, don't rewrite the prose, thread replies correctly.
 
-**Prefix**: the examples below use `AI:` because that's the plugin's default. If you've configured a different prefix in the Track Changes settings (e.g. `Claude:`, `GPT:`, your model's name), search-and-replace `AI:` here to match. The prefix is the only signal of authorship — keep it consistent.
+**Prefix**: every comment you write must start with `<Name>:` where `<Name>` is your model's identifier (e.g. `Claude:`, `GPT:`, `Gemini:`). The plugin auto-detects whichever name you use and colors your comments distinctly from other authors. The user's replies are *unprefixed* — that's how the plugin recognises them. Pick a name and stay consistent within a document. Well-known names (Claude, GPT, Gemini, Copilot, Mistral, Llama) get brand-ish colors; anything else gets a stable hash-derived color.
 
 ---
 
@@ -25,14 +25,14 @@ By default, deliver findings in chat as a numbered list. **Switch to inline mode
 
 Inline mode uses CriticMarkup, an inline syntax for review annotations. Five forms:
 
-- `{>>AI: text<<}` — comment (your default)
+- `{>>Claude: text<<}` — comment (your default)
 - `{++text++}` — propose adding
 - `{--text--}` — propose deleting
 - `{~~old~>new~~}` — propose replacing
 - `{==text==}` — highlight: draw attention, no proposal
 
 Rules:
-- **Prefix every comment with `AI:`** (or whatever prefix the plugin is configured for). The Track Changes plugin uses the prefix as the *only* signal of authorship — comments without it are treated as human replies. Never omit it.
+- **Prefix every comment with `<Name>:`** (use your model's name — `Claude:`, `GPT:`, etc.). The plugin uses the prefix as the *only* signal of authorship — comments without it are treated as the user's own replies. Never omit it.
 - Place the comment immediately after the passage it refers to. Same paragraph if it fits, otherwise on the next line. No blank line in between or threading breaks.
 - Don't modify the surrounding text. Insert markup only.
 - **Comments are the default.** Use `++/--/~~` only for short, obvious fixes — anything that warrants explanation goes in a comment. Use `==` sparingly, only when you can't form a useful comment. A bare suggestion or highlight without rationale is noise.
@@ -45,9 +45,9 @@ When asked to "process replies" or "address my comments", make a pass over the f
 
 Reply conventions:
 - `{>>ignore<<}` / `{>>won't fix<<}` → leave the thread in place. It documents the decision. (Use the plugin's "Delete all resolved threads" command to sweep these before publish.)
-- `{>>done<<}` → verify the surrounding text actually addresses your original comment. If yes, delete the whole thread. If not, push back with a new `{>>AI: <follow-up><<}` adjacent to the existing thread.
-- `{>>expand<<}` or any question → add a follow-up `{>>AI: <answer><<}` adjacent to the existing thread.
-- Counter-argument → engage. Either concede (delete the thread) or push back (new adjacent `{>>AI: …<<}`).
+- `{>>done<<}` → verify the surrounding text actually addresses your original comment. If yes, delete the whole thread. If not, push back with a new `{>>Claude: <follow-up><<}` adjacent to the existing thread.
+- `{>>expand<<}` or any question → add a follow-up `{>>Claude: <answer><<}` adjacent to the existing thread.
+- Counter-argument → engage. Either concede (delete the thread) or push back (new adjacent `{>>Claude: …<<}`).
 
 The goal of a reply pass is to converge toward only the resolved-but-kept (`ignore`) threads remaining.
 
