@@ -62,6 +62,7 @@ export class ReviewPanelView extends ItemView {
   private currentSource = "";
   private rerender = debounce(() => this.refresh(), 200, true);
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
+  private collapsedThreads = new Set<number>(); // thread.from values that are collapsed
   private markdownChildren: Component[] = [];
   // Bumped on every refresh() entry. Lets an in-flight refresh detect that a
   // newer one started while it was awaiting the file read, and bail before
@@ -121,6 +122,7 @@ export class ReviewPanelView extends ItemView {
     if (file !== this.currentFile) {
       this.currentFile = file;
       this.replyDrafts.clear();
+      this.collapsedThreads.clear();
     }
     this.refresh();
   }
@@ -238,15 +240,23 @@ export class ReviewPanelView extends ItemView {
   ): void {
     const card = list.createDiv({ cls: "kcm-card kcm-card-thread" });
     card.setAttr("data-kcm-card-offset", String(thread.from));
+    const isCollapsed = this.collapsedThreads.has(thread.from);
+    if (isCollapsed) card.addClass("kcm-card-collapsed");
 
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
+      if (target.closest(".kcm-thread-toggle")) return;
+      if (this.collapsedThreads.has(thread.from)) {
+        this.toggleThreadCollapsed(thread.from);
+        return;
+      }
       if (target.closest(".kcm-card-actions, .kcm-message, .kcm-reply, button, textarea, input"))
         return;
       this.host.revealOffset(file, thread.from, thread.to - thread.from);
     });
 
-    this.renderLineRef(card, source, thread.from, `#${threadNumber}`);
+    const root = parsed.nodes[thread.rootIndex] as CommentNode;
+    this.renderThreadHeader(card, source, thread, threadNumber, root);
 
     const messages = card.createDiv({ cls: "kcm-messages" });
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
@@ -416,6 +426,58 @@ export class ReviewPanelView extends ItemView {
     }
     const text = prefix ? `${prefix} · Line ${line}` : `Line ${line}`;
     card.createDiv({ cls: "kcm-line-ref", text });
+  }
+
+  private renderThreadHeader(
+    card: HTMLElement,
+    source: string,
+    thread: Thread,
+    threadNumber: number,
+    root: CommentNode,
+  ): void {
+    const header = card.createDiv({ cls: "kcm-thread-header" });
+
+    let line = 1;
+    for (let i = 0; i < thread.from && i < source.length; i++) {
+      if (source.charCodeAt(i) === 10) line++;
+    }
+    header.createDiv({ cls: "kcm-line-ref", text: `#${threadNumber} · Line ${line}` });
+
+    const replyCount = thread.replyIndexes.length;
+    if (replyCount > 0) {
+      header.createSpan({
+        cls: "kcm-thread-reply-count",
+        text: `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`,
+      });
+    }
+
+    const toggle = header.createEl("button", {
+      cls: "kcm-thread-toggle kcm-icon-btn",
+      attr: { "aria-label": "Toggle thread" },
+    });
+    const isCollapsed = this.collapsedThreads.has(thread.from);
+    setIcon(toggle, isCollapsed ? "chevron-right" : "chevron-down");
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleThreadCollapsed(thread.from);
+    });
+
+    const previewText = root.text.split(/\r?\n/, 1)[0].trim();
+    const preview = card.createDiv({ cls: "kcm-thread-preview" });
+    preview.setText(previewText || "(empty)");
+  }
+
+  private toggleThreadCollapsed(offset: number): void {
+    const willCollapse = !this.collapsedThreads.has(offset);
+    if (willCollapse) this.collapsedThreads.add(offset);
+    else this.collapsedThreads.delete(offset);
+    const card = this.contentEl.querySelector(
+      `[data-kcm-card-offset="${offset}"]`,
+    ) as HTMLElement | null;
+    if (!card) return;
+    card.toggleClass("kcm-card-collapsed", willCollapse);
+    const toggle = card.querySelector(".kcm-thread-toggle") as HTMLElement | null;
+    if (toggle) setIcon(toggle, willCollapse ? "chevron-right" : "chevron-down");
   }
 
   private renderMarkdownInto(el: HTMLElement, text: string, sourcePath: string): void {

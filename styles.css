@@ -131,6 +131,51 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.kcm-thread-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kcm-thread-header .kcm-line-ref {
+  flex: 1;
+}
+.kcm-thread-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.kcm-thread-toggle:hover {
+  color: var(--text-normal);
+}
+.kcm-thread-reply-count {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  background: var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-variant-numeric: tabular-nums;
+}
+.kcm-thread-preview {
+  display: none;
+  font-size: 0.9em;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kcm-card-collapsed {
+  gap: 4px;
+}
+.kcm-card-collapsed .kcm-thread-preview {
+  display: block;
+}
+.kcm-card-collapsed .kcm-messages,
+.kcm-card-collapsed .kcm-reply {
+  display: none;
+}
 .kcm-messages {
   display: flex;
   flex-direction: column;
