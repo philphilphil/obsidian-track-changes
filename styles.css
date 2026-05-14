@@ -94,10 +94,10 @@
 }
 .tc-deletion {
   background: rgba(220, 38, 38, 0.08);
-  text-decoration: line-through rgba(220, 38, 38, 0.6);
+  text-decoration: line-through;
 }
 .tc-sub-old {
-  text-decoration: line-through rgba(220, 38, 38, 0.6);
+  text-decoration: line-through;
   background: rgba(220, 38, 38, 0.06);
 }
 .tc-sub-new {
@@ -390,7 +390,6 @@
   border-left: 3px solid rgba(220, 38, 38, 0.5);
   padding: 4px 8px;
   border-radius: 4px;
-  text-decoration: line-through rgba(220, 38, 38, 0.4);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
