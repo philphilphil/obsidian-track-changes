@@ -48,7 +48,7 @@ class ThreadChipWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const chip = document.createElement("span");
+    const chip = activeDocument.createElement("span");
     chip.className = `tc-chip tc-chip-${this.authorName ? "named" : "you"}`;
     if (this.authorName) {
       chip.setAttr("data-author-hue", String(authorHueIndex(this.authorName)));
@@ -102,7 +102,7 @@ class SubstitutionWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const wrap = document.createElement("span");
+    const wrap = activeDocument.createElement("span");
     wrap.className = "tc-substitution-widget";
     wrap.setAttr("data-tc-offset", String(this.offset));
 

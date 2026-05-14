@@ -73,13 +73,13 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     });
   }
 
-  async onunload(): Promise<void> {
+  onunload(): void {
     // Leaves of our view type are detached automatically when their root is.
     // (Obsidian guidance: do NOT call detachLeavesOfType in onunload.)
   }
 
   async loadSettings(): Promise<void> {
-    const stored = (await this.loadData()) ?? {};
+    const stored = ((await this.loadData()) ?? {}) as Partial<TrackChangesCriticMarkupSettings>;
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...stored,
@@ -111,7 +111,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   private async openReviewPanel(): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
     if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
+      await this.app.workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf =
@@ -123,7 +123,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       return;
     }
     await leaf.setViewState({ type: REVIEW_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 
   private getReviewView(): ReviewPanelView | null {

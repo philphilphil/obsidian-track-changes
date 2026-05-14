@@ -100,15 +100,13 @@ export class FinalizeModal extends Modal {
     const cancel = buttons.createEl("button", { text: "Cancel" });
     cancel.addEventListener("click", () => this.close());
     const apply = buttons.createEl("button", { cls: "mod-cta", text: "Apply" });
-    apply.addEventListener("click", async () => {
+    apply.addEventListener("click", () => {
       const edits = finalizeEdits(parse(this.source), this.opts);
       this.close();
-      try {
-        await this.onConfirm(edits);
-      } catch (err) {
+      void this.onConfirm(edits).catch((err) => {
         console.error("Finalize failed", err);
         new Notice("Finalize failed; see console.");
-      }
+      });
     });
   }
 

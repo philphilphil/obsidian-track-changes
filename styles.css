@@ -94,26 +94,23 @@
 }
 .tc-deletion {
   background: rgba(220, 38, 38, 0.08);
-  text-decoration: line-through;
-  text-decoration-color: rgba(220, 38, 38, 0.6);
+  text-decoration: line-through rgba(220, 38, 38, 0.6);
 }
 .tc-sub-old {
-  text-decoration: line-through;
-  text-decoration-color: rgba(220, 38, 38, 0.6);
+  text-decoration: line-through rgba(220, 38, 38, 0.6);
   background: rgba(220, 38, 38, 0.06);
 }
 .tc-sub-new {
   background: rgba(56, 161, 105, 0.12);
   border-bottom: 1px solid rgba(56, 161, 105, 0.6);
 }
+/* inline-block isolates text-decoration, so any surrounding strikethrough
+ * (e.g. when Obsidian's markdown parser interprets {~~...~~} as ~~strike~~)
+ * doesn't draw a line across the whole widget. */
 .tc-substitution-widget {
+  display: inline-block;
   cursor: pointer;
   white-space: pre-wrap;
-}
-.cm-strikethrough:has(.tc-substitution-widget),
-.cm-strikethrough .tc-substitution-widget,
-.tc-substitution-widget.cm-strikethrough {
-  text-decoration: none !important;
 }
 .tc-sub-arrow {
   color: var(--text-muted);
@@ -393,8 +390,7 @@
   border-left: 3px solid rgba(220, 38, 38, 0.5);
   padding: 4px 8px;
   border-radius: 4px;
-  text-decoration: line-through;
-  text-decoration-color: rgba(220, 38, 38, 0.4);
+  text-decoration: line-through rgba(220, 38, 38, 0.4);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

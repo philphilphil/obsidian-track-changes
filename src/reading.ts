@@ -35,7 +35,8 @@ function isInsideCode(node: Node): boolean {
 export function makeReadingPostProcessor(getOpts: () => ReadingOptions) {
   return function processor(el: HTMLElement, _ctx: MarkdownPostProcessorContext) {
     const opts = getOpts();
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    const doc = el.ownerDocument;
+    const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
     const textNodes: Text[] = [];
     let node = walker.nextNode();
     while (node) {
@@ -51,32 +52,33 @@ export function makeReadingPostProcessor(getOpts: () => ReadingOptions) {
 
 function replaceInTextNode(text: Text, opts: ReadingOptions): void {
   const src = text.nodeValue ?? "";
+  const doc = text.ownerDocument;
   COMBINED_RE.lastIndex = 0;
-  const frag = document.createDocumentFragment();
+  const frag = doc.createDocumentFragment();
   let lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = COMBINED_RE.exec(src)) !== null) {
     if (m.index > lastIndex) {
-      frag.appendChild(document.createTextNode(src.slice(lastIndex, m.index)));
+      frag.appendChild(doc.createTextNode(src.slice(lastIndex, m.index)));
     }
-    const replacement = renderMatch(m, opts);
+    const replacement = renderMatch(doc, m, opts);
     frag.appendChild(replacement);
     lastIndex = m.index + m[0].length;
   }
   if (lastIndex < src.length) {
-    frag.appendChild(document.createTextNode(src.slice(lastIndex)));
+    frag.appendChild(doc.createTextNode(src.slice(lastIndex)));
   }
   text.replaceWith(frag);
 }
 
-function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
+function renderMatch(doc: Document, m: RegExpExecArray, opts: ReadingOptions): Node {
   const [full, comment, addition, deletion, subOld, subNew, highlight] = m;
 
   if (comment !== undefined) {
     const authorMatch = comment.match(AUTHOR_RE);
     const authorName = authorMatch ? authorMatch[1] : null;
     const body = authorMatch ? comment.slice(authorMatch[0].length) : comment;
-    const span = document.createElement("span");
+    const span = doc.createElement("span");
     span.className = `tc-rm-comment tc-rm-comment-${authorName ? "named" : "you"}`;
     if (authorName) {
       span.setAttribute("data-author-hue", String(authorHueIndex(authorName)));
@@ -88,44 +90,44 @@ function renderMatch(m: RegExpExecArray, opts: ReadingOptions): Node {
   }
   if (addition !== undefined) {
     if (opts.suggestions === "accepted") {
-      return document.createTextNode(addition);
+      return doc.createTextNode(addition);
     }
-    const span = document.createElement("span");
+    const span = doc.createElement("span");
     span.className = "tc-rm-addition";
     span.textContent = addition;
     return span;
   }
   if (deletion !== undefined) {
     if (opts.suggestions === "accepted") {
-      return document.createTextNode("");
+      return doc.createTextNode("");
     }
-    const span = document.createElement("span");
+    const span = doc.createElement("span");
     span.className = "tc-rm-deletion";
     span.textContent = deletion;
     return span;
   }
   if (subOld !== undefined && subNew !== undefined) {
     if (opts.suggestions === "accepted") {
-      return document.createTextNode(subNew);
+      return doc.createTextNode(subNew);
     }
-    const wrap = document.createElement("span");
+    const wrap = doc.createElement("span");
     wrap.className = "tc-rm-substitution";
-    const o = document.createElement("span");
+    const o = doc.createElement("span");
     o.className = "tc-rm-deletion";
     o.textContent = subOld;
-    const n = document.createElement("span");
+    const n = doc.createElement("span");
     n.className = "tc-rm-addition";
     n.textContent = subNew;
     wrap.appendChild(o);
-    wrap.appendChild(document.createTextNode(" → "));
+    wrap.appendChild(doc.createTextNode(" → "));
     wrap.appendChild(n);
     return wrap;
   }
   if (highlight !== undefined) {
-    const span = document.createElement("span");
+    const span = doc.createElement("span");
     span.className = "tc-rm-highlight";
     span.textContent = highlight;
     return span;
   }
-  return document.createTextNode(full);
+  return doc.createTextNode(full);
 }

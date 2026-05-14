@@ -10,7 +10,7 @@
 // through to a hash. The palette itself lives in `styles.css` as
 // `--tc-author-hue-N` CSS variables.
 
-export const AUTHOR_RE = /^\s*([A-Za-z][\w.\-]{0,29})\s*:\s*/;
+export const AUTHOR_RE = /^\s*([A-Za-z][\w.-]{0,29})\s*:\s*/;
 
 // Hue indices match --tc-author-hue-N in styles.css:
 //   0 blue, 1 purple, 2 green, 3 orange, 4 pink, 5 teal, 6 yellow, 7 red.

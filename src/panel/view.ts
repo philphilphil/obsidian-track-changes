@@ -107,9 +107,9 @@ export class ReviewPanelView extends ItemView {
   /** Called by the host when the user clicks an inline chip/mark. */
   focusOffset(file: TFile, offset: number): void {
     if (file !== this.currentFile) return;
-    const card = this.contentEl.querySelector(
+    const card = this.contentEl.querySelector<HTMLElement>(
       `[data-tc-card-offset="${offset}"]`,
-    ) as HTMLElement | null;
+    );
     if (card) {
       card.scrollIntoView({ behavior: "smooth", block: "center" });
       card.addClass("tc-card-flash");
@@ -126,7 +126,7 @@ export class ReviewPanelView extends ItemView {
       this.replyDrafts.clear();
       this.collapsedCards.clear();
     }
-    this.refresh();
+    void this.refresh();
   }
 
   /**
@@ -279,15 +279,17 @@ export class ReviewPanelView extends ItemView {
       });
       const del = meta.createEl("button", { cls: "tc-icon-btn", attr: { "aria-label": "Delete message" } });
       setIcon(del, "trash-2");
-      del.addEventListener("click", async (e) => {
+      del.addEventListener("click", (e) => {
         e.stopPropagation();
-        const confirmed = await this.confirmDestructiveAction(
-          "Delete message",
-          "Remove this comment message from the note.",
-          "Delete",
-        );
-        if (!confirmed) return;
-        await this.host.applyEdits(file, [deleteCommentNode(c)]);
+        void (async () => {
+          const confirmed = await this.confirmDestructiveAction(
+            "Delete message",
+            "Remove this comment message from the note.",
+            "Delete",
+          );
+          if (!confirmed) return;
+          await this.host.applyEdits(file, [deleteCommentNode(c)]);
+        })();
       });
 
       const body = msg.createDiv({ cls: "tc-message-body" });
@@ -306,10 +308,10 @@ export class ReviewPanelView extends ItemView {
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        submit();
+        void submit();
       }
     });
-    const submit = async () => {
+    const submit = async (): Promise<void> => {
       const text = ta.value.trim();
       if (!text) return;
       const validationError = validateReplyText(text);
@@ -323,19 +325,21 @@ export class ReviewPanelView extends ItemView {
     };
     const actions = reply.createDiv({ cls: "tc-reply-actions" });
     const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Reply" });
-    submitBtn.addEventListener("click", submit);
+    submitBtn.addEventListener("click", () => void submit());
     const deleteThreadBtn = actions.createEl("button", {
       cls: "tc-btn-danger",
       text: "Delete thread",
     });
-    deleteThreadBtn.addEventListener("click", async () => {
-      const confirmed = await this.confirmDestructiveAction(
-        "Delete thread",
-        "Remove this entire comment thread from the note.",
-        "Delete thread",
-      );
-      if (!confirmed) return;
-      await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
+    deleteThreadBtn.addEventListener("click", () => {
+      void (async () => {
+        const confirmed = await this.confirmDestructiveAction(
+          "Delete thread",
+          "Remove this entire comment thread from the note.",
+          "Delete thread",
+        );
+        if (!confirmed) return;
+        await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
+      })();
     });
   }
 
@@ -472,8 +476,8 @@ export class ReviewPanelView extends ItemView {
       cls: "tc-btn-reject",
       text: "Remove highlight",
     });
-    removeBtn.addEventListener("click", async () => {
-      await this.host.applyEdits(file, [removeHighlight(n)]);
+    removeBtn.addEventListener("click", () => {
+      void this.host.applyEdits(file, [removeHighlight(n)]);
     });
   }
 
@@ -485,12 +489,12 @@ export class ReviewPanelView extends ItemView {
   ): void {
     const actions = card.createDiv({ cls: "tc-card-actions" });
     const acceptBtn = actions.createEl("button", { cls: "tc-btn-accept", text: "Accept" });
-    acceptBtn.addEventListener("click", async () => {
-      await this.host.applyEdits(file, [accept()]);
+    acceptBtn.addEventListener("click", () => {
+      void this.host.applyEdits(file, [accept()]);
     });
     const rejectBtn = actions.createEl("button", { cls: "tc-btn-reject", text: "Reject" });
-    rejectBtn.addEventListener("click", async () => {
-      await this.host.applyEdits(file, [reject()]);
+    rejectBtn.addEventListener("click", () => {
+      void this.host.applyEdits(file, [reject()]);
     });
   }
 
@@ -551,12 +555,12 @@ export class ReviewPanelView extends ItemView {
     const willCollapse = !this.collapsedCards.has(offset);
     if (willCollapse) this.collapsedCards.add(offset);
     else this.collapsedCards.delete(offset);
-    const card = this.contentEl.querySelector(
+    const card = this.contentEl.querySelector<HTMLElement>(
       `[data-tc-card-offset="${offset}"]`,
-    ) as HTMLElement | null;
+    );
     if (!card) return;
     card.toggleClass("tc-card-collapsed", willCollapse);
-    const toggle = card.querySelector(".tc-card-toggle") as HTMLElement | null;
+    const toggle = card.querySelector<HTMLElement>(".tc-card-toggle");
     if (toggle) setIcon(toggle, willCollapse ? "chevron-right" : "chevron-down");
   }
 

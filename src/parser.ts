@@ -179,8 +179,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   for (const m of source.matchAll(SUBSTITUTION_RE)) {
     nodes.push({
       kind: "substitution",
-      from: m.index!,
-      to: m.index! + m[0].length,
+      from: m.index,
+      to: m.index + m[0].length,
       raw: m[0],
       oldText: m[1],
       newText: m[2],
@@ -189,8 +189,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   for (const m of source.matchAll(ADDITION_RE)) {
     nodes.push({
       kind: "addition",
-      from: m.index!,
-      to: m.index! + m[0].length,
+      from: m.index,
+      to: m.index + m[0].length,
       raw: m[0],
       text: m[1],
     });
@@ -198,8 +198,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   for (const m of source.matchAll(DELETION_RE)) {
     nodes.push({
       kind: "deletion",
-      from: m.index!,
-      to: m.index! + m[0].length,
+      from: m.index,
+      to: m.index + m[0].length,
       raw: m[0],
       text: m[1],
     });
@@ -207,8 +207,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   for (const m of source.matchAll(HIGHLIGHT_RE)) {
     nodes.push({
       kind: "highlight",
-      from: m.index!,
-      to: m.index! + m[0].length,
+      from: m.index,
+      to: m.index + m[0].length,
       raw: m[0],
       text: m[1],
     });
@@ -221,8 +221,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
     const text = authorMatch ? body.slice(authorMatch[0].length) : body;
     nodes.push({
       kind: "comment",
-      from: m.index!,
-      to: m.index! + raw.length,
+      from: m.index,
+      to: m.index + raw.length,
       raw,
       text,
       authorName,
@@ -249,7 +249,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   // between the previous comment's end and this comment's start contains only
   // inline whitespace (no newline).
   const threads: Thread[] = [];
-  const nodeThread: number[] = new Array(accepted.length).fill(-1);
+  const nodeThread: number[] = new Array<number>(accepted.length).fill(-1);
   let currentThread: Thread | null = null;
   let prevCommentIdx = -1;
 
