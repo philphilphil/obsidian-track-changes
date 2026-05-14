@@ -4,7 +4,7 @@
   "version": "1.2.1",
   "minAppVersion": "1.7.2",
   "description": "Review CriticMarkup suggestions in a side panel. Accept, reject, or reply.",
-  "author": "philphilphil",
+  "author": "Phil Baum",
   "authorUrl": "https://github.com/philphilphil",
   "isDesktopOnly": false
 }
