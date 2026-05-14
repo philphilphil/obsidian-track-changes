@@ -5,12 +5,16 @@ Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side 
 ![Track Changes panel showing multi-author comments from Claude and GPT](docs/screenshot.png)
 
 ## About
-In my usecase, AI agents review and comment essays and texts. This plugin is only for reviewing applying/denying and commenting.
-If you want to add CriticMarkup within obsidian yourself use [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup) which is a full-featured general-purpose CriticMarkup plugin.
+
+Every CriticMarkup mark in the active note becomes a card in a side panel (and is also styled inline). Accept, reject, reply, or delete the whole thread, all changes are written straight back into the markdown as `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}`. No sidecar state.
+
+For authoring CriticMarkup inside Obsidian yourself, use [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup). It's a full-featured general-purpose plugin. 
 
 ## Usage with AI
-[`docs/SKILL.md`](docs/SKILL.md) is a starting-point reviewer prompt, adapt it to your own reviewing needs.
-I use it to expiclity forbid the AI to write any kind of text. All text is human written. The AI just finds issues and errors and challanges the arguments.
+
+The intended usecase: AI agents review and comment essays and texts. This plugin is for the human side: reviewing, applying, denying, replying.
+
+[`docs/SKILL.md`](docs/SKILL.md) is a starting-point reviewer prompt, adapt it to your own reviewing needs. It explicitly forbids the AI from writing any kind of text. All text is human-written. The AI just finds issues, errors and challenges arguments.
 
 ## Features
 
@@ -31,7 +35,7 @@ I use it to expiclity forbid the AI to write any kind of text. All text is human
 
 ## Install
 
-**Community Plugins** → search "Track Changes" *(once accepted)*.
+**Community Plugins** → search "Track Changes", or install from [community.obsidian.md/plugins/track-changes](https://community.obsidian.md/plugins/track-changes).
 
 **Manual:** drop `main.js`, `manifest.json`, `styles.css` into `<vault>/.obsidian/plugins/track-changes/` and enable in settings.
 
