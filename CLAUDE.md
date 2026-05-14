@@ -32,7 +32,7 @@ Entry point `src/main.ts` is the `Plugin` subclass. It wires four things into Ob
 
 ### Data flow: parse → edits → rebase → apply
 
-- `src/parser.ts` scans source text and emits a `ParseResult` with `nodes` (the five CriticMarkup kinds) and `threads` (adjacent `{>>…<<}` blocks group). Comments expose `authorName: string | null` — the captured `<Name>:` prefix (original casing) or `null` if unprefixed. **Code blocks are skipped** — markup inside fences is left alone.
+- `src/parser.ts` scans source text and emits a `ParseResult` with `nodes` (the five CriticMarkup kinds) and `threads` (adjacent `{>>…<<}` blocks group). Comments expose `authorName: string | null` — the captured `<Name>:` prefix (original casing) or `null` if unprefixed. **Code blocks are skipped** — markup inside fenced (```` ``` ````, `~~~`), indented (4-space / tab), or inline-backtick code is left alone.
 - `src/operations.ts` turns user actions (accept, reject, reply, delete-thread, …) into `SourceEdit[]`. Each edit carries optional `expected` (text at `[from, to)`) and `before` (text immediately preceding `from`) as anchors.
 - `rebaseEdits` re-validates each edit against the *current* document right before write. If the doc drifted since parse (user typed, AI re-edited via another channel), it searches a ±200-char window for the `before+expected` anchor; non-unique matches are dropped rather than risk corrupting unrelated text. This is critical — never apply raw stale offsets.
 - `main.applyEditsToFile` prefers the live CM6 `EditorView.dispatch` (so changes coalesce with the user's undo stack), falls back to `Editor.setValue`, then to `Vault.process` for unopened files.
@@ -48,6 +48,6 @@ A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank li
 ## Conventions
 
 - TypeScript strict, ES2018 target, CJS bundle (Obsidian requirement). External modules listed in `esbuild.config.mjs` — don't bundle `obsidian` or any `@codemirror/*` packages.
-- Source edits must be non-overlapping; `applyEdits` sorts descending by `from` and splices. Construct edits with that contract in mind.
+- Source edits must be non-overlapping; `applyEdits` asserts this and throws on violation. Construct edits with that contract in mind.
 - When adding a new mutation, always set `expected` (and `before` for insertions) so it survives `rebaseEdits`.
-- Companion-agent behavior is documented in `examples/CLAUDE.md` (the example reviewer prompt shipped with the plugin). When changing thread/prefix semantics, update both this file and that one.
+- Companion-agent behavior is documented in `docs/SKILL.md` (the example reviewer-skill template shipped with the plugin). When changing thread/prefix semantics, update both this file and that one.

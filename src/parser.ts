@@ -84,10 +84,10 @@ const SUBSTITUTION_RE = /\{~~([\s\S]*?)~>([\s\S]*?)~~\}/g;
 const HIGHLIGHT_RE = /\{==([\s\S]*?)==\}/g;
 
 /**
- * Find ranges of source covered by Markdown code (fenced blocks and inline
- * backtick spans). CriticMarkup-looking text inside code should remain literal
- * — it's an example, not a real annotation. Returned ranges are sorted and
- * non-overlapping.
+ * Find ranges of source covered by Markdown code (fenced blocks, indented
+ * blocks, and inline backtick spans). CriticMarkup-looking text inside code
+ * should remain literal — it's an example, not a real annotation. Returned
+ * ranges are sorted and non-overlapping.
  */
 function findCodeRegions(source: string): Array<[number, number]> {
   const regions: Array<[number, number]> = [];
@@ -97,16 +97,62 @@ function findCodeRegions(source: string): Array<[number, number]> {
     const from = (m.index ?? 0) + m[1].length;
     regions.push([from, from + m[0].length - m[1].length]);
   }
-  // Subtract fenced regions before searching inline; inline backticks inside fences are meaningless.
-  // Inline code spans: single-backtick spans on a single line. Double-backtick spans are rare; we keep this simple.
+  // Indented code blocks (CommonMark): a 4-space- or tab-indented run that
+  // starts after a blank line (or at the doc start) and ends at the next
+  // non-blank, non-indented line.
+  regions.push(...findIndentedCodeRegions(source, regions));
+  // Inline code spans: single-backtick spans on a single line. Skip any whose
+  // start sits inside a fenced or indented region (where backticks are literal).
   const inlineRe = /`[^`\n]+`/g;
-  const inFence = (idx: number) => regions.some(([a, b]) => idx >= a && idx < b);
+  const inExisting = (idx: number) => regions.some(([a, b]) => idx >= a && idx < b);
   for (const m of source.matchAll(inlineRe)) {
     const from = m.index ?? 0;
-    if (inFence(from)) continue;
+    if (inExisting(from)) continue;
     regions.push([from, from + m[0].length]);
   }
   regions.sort((a, b) => a[0] - b[0]);
+  return regions;
+}
+
+function findIndentedCodeRegions(
+  source: string,
+  existing: Array<[number, number]>,
+): Array<[number, number]> {
+  const inExisting = (idx: number) => existing.some(([a, b]) => idx >= a && idx < b);
+  const regions: Array<[number, number]> = [];
+  let pos = 0;
+  let prevBlank = true; // doc start counts as "previous line blank"
+  let blockStart = -1;
+
+  while (pos <= source.length) {
+    const nl = source.indexOf("\n", pos);
+    const lineEnd = nl === -1 ? source.length : nl;
+    const lineStart = pos;
+    const line = source.slice(lineStart, lineEnd);
+
+    if (inExisting(lineStart)) {
+      if (blockStart >= 0) {
+        regions.push([blockStart, lineStart]);
+        blockStart = -1;
+      }
+      prevBlank = false;
+    } else {
+      const isBlank = /^[ \t]*$/.test(line);
+      const isIndented = !isBlank && /^( {4,}|\t)/.test(line);
+      if (blockStart < 0) {
+        if (isIndented && prevBlank) blockStart = lineStart;
+      } else if (!isIndented && !isBlank) {
+        regions.push([blockStart, lineStart]);
+        blockStart = -1;
+      }
+      prevBlank = isBlank;
+    }
+
+    if (nl === -1) break;
+    pos = nl + 1;
+  }
+
+  if (blockStart >= 0) regions.push([blockStart, source.length]);
   return regions;
 }
 

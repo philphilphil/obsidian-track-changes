@@ -217,4 +217,41 @@ test("skipCode option can be disabled to recover legacy behavior", () => {
   assert.equal(r.nodes[0].text, "inside");
 });
 
+test("markup inside a 4-space indented code block is not parsed", () => {
+  const src = "before\n\n    {++not a real addition++}\n\nafter {++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("markup inside a tab-indented code block is not parsed", () => {
+  const src = "before\n\n\t{++not real++}\n\nafter {++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("indented code block at the start of the document is detected", () => {
+  const src = "    {++inside++}\nprose {++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("indented line WITHOUT a preceding blank is not treated as code", () => {
+  // Per CommonMark, an indented code block cannot interrupt a paragraph —
+  // so this indented continuation line is still prose, and the markup must parse.
+  const src = "paragraph line\n    {++still prose++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "still prose");
+});
+
+test("indented code block with internal blank line is one continuous region", () => {
+  const src = "before\n\n    {++a++}\n\n    {++b++}\n\nafter {++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
 console.log("done.");

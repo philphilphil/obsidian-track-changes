@@ -1,24 +1,16 @@
 # Track Changes
 
-Review [CriticMarkup](http://criticmarkup.com/) suggestions from an AI (or any external editor) in an Obsidian side panel. Accept, reject, or reply — everything stays in plain markdown, no sidecar state.
+Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side panel. Accept, reject, or reply.
 
 ![Track Changes panel showing multi-author comments from Claude and GPT](docs/screenshot.png)
 
-## The flow
+## About
+My usecase for this is that AI agents review and comment essays and texts but this would also work if a nother person adds the CriticMarkup.
+Please note that this plugin is only for reviewing applying/denying and commenting, it does not add CriticMarkup itself, for that use [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup) which is a full-featured general-purpose CriticMarkup plugin.
 
-Your AI writes CriticMarkup into your notes — additions, deletions, substitutions, comments. You open the review panel and walk through each change.
-
-```markdown
-The deadline is {~~Tuesday~>Friday~~}. {>>Claude: source says Friday — meeting notes 2026-05-08.<<} {>>good catch, keep<<}
-```
-
-Authorship is detected from the `<Name>:` prefix on each comment. Well-known names (`Claude`, `GPT`, `Gemini`, `Copilot`, …) get brand-ish colors; any other name gets a stable hash-derived color. Unprefixed comments are treated as your own replies — that's how the plugin tells the two apart.
-
-Multiple reviewers work naturally: run Claude and GPT over the same doc and their comments surface in distinct colors in the panel.
-
-## Tell your agent how to behave
-
-Drop [`docs/CLAUDE.md`](docs/CLAUDE.md) into the folder you want reviewed (rename to `AGENTS.md` for non-Claude agents, or paste as a system prompt). It sets the reviewer-mode protocol: insert-only, every comment prefixed with the agent's name, threading and reply conventions.
+## Usage
+[`docs/SKILL.md`](docs/SKILL.md) is a starting-point reviewer prompt, adapt it to your own reviewing needs.
+I use it to expiclity forbid the AI to write any kind of text. All text is human written. The AI just finds issues and errors and challanges the arguments.
 
 ## Features
 
@@ -48,10 +40,6 @@ Drop [`docs/CLAUDE.md`](docs/CLAUDE.md) into the folder you want reviewed (renam
 ```sh
 npm install && npm run build
 ```
-
-## Related
-
-For human-to-human collaboration, [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup) is the full-featured general-purpose CriticMarkup plugin. This one is intentionally narrower: review-focused, tuned for an external AI author.
 
 ## License
 

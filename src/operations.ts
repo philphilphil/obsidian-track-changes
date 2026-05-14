@@ -33,6 +33,14 @@ export function validateReplyText(text: string): string | null {
 /** Apply a list of edits to a source string. Edits must be non-overlapping. */
 export function applyEdits(source: string, edits: SourceEdit[]): string {
   const sorted = [...edits].sort((a, b) => b.from - a.from);
+  // Descending order: sorted[i+1].from < sorted[i].from. Non-overlap requires
+  // sorted[i+1].to <= sorted[i].from. Catch contract violations early — silent
+  // overlap would corrupt the source via the slice/splice loop below.
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sorted[i + 1].to > sorted[i].from) {
+      throw new Error("applyEdits: overlapping edits");
+    }
+  }
   let out = source;
   for (const e of sorted) {
     out = out.slice(0, e.from) + e.insert + out.slice(e.to);
