@@ -66,7 +66,26 @@ test("returns edit unchanged when doc.slice(from,to) === expected", () => {
   assert.equal(out.insert, "WORLD");
 });
 
-test("shifted doc with unique nearby match → returns rebased edit", () => {
+test("returns edit unchanged when exact expected text repeats nearby", () => {
+  requireRebase();
+  const doc = "{++x++} and {++x++}";
+  const edit = { from: 0, to: 7, insert: "x", expected: "{++x++}" };
+  const out = rebaseEdit(doc, edit);
+  assert.ok(out !== null, "expected exact in-place match to succeed");
+  assert.equal(out.from, 0);
+  assert.equal(out.to, 7);
+  assert.equal(out.insert, "x");
+});
+
+test("expected-only stale edit does not relocate to another identical marker", () => {
+  requireRebase();
+  const currentDoc = " and {++x++}";
+  const edit = { from: 0, to: 7, insert: "x", expected: "{++x++}" };
+  const out = rebaseEdit(currentDoc, edit);
+  assert.equal(out, null);
+});
+
+test("shifted doc with explicit unique context anchor → returns rebased edit", () => {
   requireRebase();
   // Original doc: "prefix TARGET suffix"
   // We pretend an edit was computed against the original where TARGET was at offset 7.
@@ -79,6 +98,7 @@ test("shifted doc with unique nearby match → returns rebased edit", () => {
     to: originalTo,
     insert: "REPLACED",
     expected: "TARGET",
+    before: "prefix ",
   };
   const out = rebaseEdit(currentDoc, edit);
   assert.ok(out !== null, "expected rebase to succeed");
@@ -103,30 +123,32 @@ test("expected substring missing in window → returns null", () => {
   assert.equal(out, null);
 });
 
-test("expected substring appears multiple times in window → ambiguous, returns null", () => {
+test("context anchor appears multiple times in window → ambiguous, returns null", () => {
   requireRebase();
-  // "foo" appears twice within a small window around the original offset.
-  const currentDoc = "aaa foo bbb foo ccc";
+  // "prefix TARGET" appears twice within a small window around the stale offset.
+  const currentDoc = "aaa prefix TARGET bbb prefix TARGET ccc";
   const edit = {
-    from: 4, // doesn't actually match "foo" here either way; the original was somewhere
-    to: 7,
+    from: 50,
+    to: 56,
     insert: "X",
-    expected: "foo",
+    expected: "TARGET",
+    before: "prefix ",
   };
   const out = rebaseEdit(currentDoc, edit);
   assert.equal(out, null, "ambiguous matches must return null");
 });
 
-test("expected outside the ±200 window → returns null", () => {
+test("context anchor outside the ±200 window → returns null", () => {
   requireRebase();
-  // Place "TARGET" far away from the original offset so the search window misses it.
+  // Place "prefix TARGET" far away from the original offset so the search window misses it.
   const filler = "x".repeat(500);
-  const currentDoc = filler + " TARGET " + filler;
+  const currentDoc = filler + " prefix TARGET " + filler;
   const edit = {
     from: 0,
     to: 6,
     insert: "X",
     expected: "TARGET",
+    before: "prefix ",
   };
   const out = rebaseEdit(currentDoc, edit);
   assert.equal(out, null);

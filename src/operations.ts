@@ -43,9 +43,10 @@ export function applyEdits(source: string, edits: SourceEdit[]): string {
 /**
  * Rebase an edit against the current document. If the edit's `from..to` still
  * matches `expected` (and `before` if provided), the edit is returned as-is.
- * Otherwise we search a ±200 char window for the anchor `before + expected`;
- * if it occurs exactly once there, we return the edit with adjusted offsets.
- * If it can't be uniquely located, we return null — the caller should refuse.
+ * If the original range no longer matches, only edits with an explicit `before`
+ * anchor may relocate. Plain `expected` edits intentionally fail closed: a raw
+ * CriticMarkup block like `{++x++}` is too weak to safely distinguish from an
+ * identical nearby block.
  *
  * If `expected` and `before` are both undefined, we trust the offsets and
  * return as-is (backwards-compatible default).
@@ -57,6 +58,13 @@ export function rebaseEdit(currentDoc: string, edit: SourceEdit): SourceEdit | n
 
   const expected = edit.expected ?? "";
   const before = edit.before ?? "";
+  const currentExpected = currentDoc.slice(edit.from, edit.to);
+  const currentBefore =
+    before === "" ? "" : currentDoc.slice(Math.max(0, edit.from - before.length), edit.from);
+  if (currentExpected === expected && currentBefore === before) return edit;
+
+  if (edit.before === undefined) return null;
+
   const needle = before + expected;
   if (needle === "") return null;
 
@@ -74,12 +82,11 @@ export function rebaseEdit(currentDoc: string, edit: SourceEdit): SourceEdit | n
     idx = window.indexOf(needle, idx + 1);
   }
 
-  // Ambiguous (zero or multiple) — refuse. A coincidental in-place match isn't
-  // enough to be confident the offset is still semantically correct.
+  // Ambiguous (zero or multiple) — refuse. Relocation must be uniquely anchored
+  // by context, otherwise a stale action could edit an identical nearby block.
   if (matches.length !== 1) return null;
 
   const newFrom = matches[0] + before.length;
-  if (newFrom === edit.from && newFrom + expected.length === edit.to) return edit;
   return {
     ...edit,
     from: newFrom,
