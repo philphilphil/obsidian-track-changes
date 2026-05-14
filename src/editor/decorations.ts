@@ -10,12 +10,16 @@
 //   - When the cursor / selection touches a markup range, we leave it raw so
 //     the user can edit it directly. (Standard Obsidian live-preview trick.)
 //
-// The decorations are recomputed in `update()` when the document or
-// selection changes.
+// Decorations are supplied through a StateField rather than a ViewPlugin so
+// that replace decorations are allowed to cover line breaks. CM6 forbids
+// line-break-spanning replaces when the facet value is a function (the form a
+// ViewPlugin produces); a StateField resolves to a DecorationSet directly, so
+// the restriction doesn't apply. Without this a multi-line `{>>…<<}` (e.g. an
+// LLM-authored comment containing a numbered list) would throw a RangeError
+// inside CM6's view build and break the editor.
 
-import { EditorView, ViewPlugin, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
-import { RangeSetBuilder } from "@codemirror/state";
-import type { ViewUpdate, PluginValue } from "@codemirror/view";
+import { EditorView, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
+import { RangeSetBuilder, StateField, type EditorState, type Extension } from "@codemirror/state";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
 import { authorHueIndex } from "../authors";
@@ -125,15 +129,15 @@ function threadTooltip(thread: Thread, nodes: CriticNode[]): string {
     .join("\n\n");
 }
 
-function rangeTouchesSelection(view: EditorView, from: number, to: number): boolean {
-  for (const range of view.state.selection.ranges) {
+function rangeTouchesSelection(state: EditorState, from: number, to: number): boolean {
+  for (const range of state.selection.ranges) {
     if (range.from <= to && range.to >= from) return true;
   }
   return false;
 }
 
-function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): DecorationSet {
-  const source = view.state.doc.toString();
+function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): DecorationSet {
+  const source = state.doc.toString();
   const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
 
@@ -168,7 +172,7 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
     if (item.kind === "thread") {
       const t = item.thread;
       threadIndex++;
-      if (rangeTouchesSelection(view, t.from, t.to)) continue;
+      if (rangeTouchesSelection(state, t.from, t.to)) continue;
       const root = parsed.nodes[t.rootIndex] as CommentNode;
       const count = 1 + t.replyIndexes.length;
       const widget = new ThreadChipWidget(
@@ -188,12 +192,11 @@ function buildDecorations(view: EditorView, callbacks: DecorationCallbacks): Dec
     }
 
     const n = item.node;
-    if (rangeTouchesSelection(view, n.from, n.to)) continue;
+    if (rangeTouchesSelection(state, n.from, n.to)) continue;
 
     if (n.kind === "addition") {
       const innerFrom = n.from + 3; // length of "{++"
       const innerTo = n.to - 3; // length of "++}"
-      // Hide wrappers
       builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
         innerFrom,
@@ -242,38 +245,35 @@ function hiddenDecoration(): Decoration {
   return Decoration.replace({});
 }
 
-export function criticDecorationsExtension(callbacks: DecorationCallbacks) {
-  return ViewPlugin.fromClass(
-    class implements PluginValue {
-      decorations: DecorationSet;
-      constructor(view: EditorView) {
-        this.decorations = buildDecorations(view, callbacks);
-      }
-      update(update: ViewUpdate) {
-        if (update.docChanged || update.selectionSet) {
-          this.decorations = buildDecorations(update.view, callbacks);
-        }
-      }
+export function criticDecorationsExtension(callbacks: DecorationCallbacks): Extension {
+  const field = StateField.define<DecorationSet>({
+    create(state) {
+      return buildDecorations(state, callbacks);
     },
-    {
-      decorations: (v) => v.decorations,
-      eventHandlers: {
-        mousedown(event, _view) {
-          const target = event.target as HTMLElement | null;
-          if (!target) return false;
-          const offsetAttr = target.closest("[data-tc-offset]")?.getAttribute("data-tc-offset");
-          if (offsetAttr != null) {
-            const offset = Number(offsetAttr);
-            if (!Number.isNaN(offset)) {
-              event.preventDefault();
-              event.stopPropagation();
-              callbacks.onClick(offset);
-              return true;
-            }
-          }
-          return false;
-        },
-      },
+    update(deco, tr) {
+      // Recompute when the doc or selection actually changed — matches the
+      // gate the old ViewPlugin used, avoids rebuilding on every keystroke
+      // that doesn't move the cursor or alter the doc.
+      if (!tr.docChanged && !tr.selection) return deco;
+      return buildDecorations(tr.state, callbacks);
     },
-  );
+    provide: (f) => EditorView.decorations.from(f),
+  });
+
+  const clickHandler = EditorView.domEventHandlers({
+    mousedown(event) {
+      const target = event.target as HTMLElement | null;
+      if (!target) return false;
+      const offsetAttr = target.closest("[data-tc-offset]")?.getAttribute("data-tc-offset");
+      if (offsetAttr == null) return false;
+      const offset = Number(offsetAttr);
+      if (Number.isNaN(offset)) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      callbacks.onClick(offset);
+      return true;
+    },
+  });
+
+  return [field, clickHandler];
 }

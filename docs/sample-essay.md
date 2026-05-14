@@ -12,6 +12,11 @@ The biggest hidden tax was decision latency. A thread that would have been resol
 
 The {==second tax was invisible escalation==}: small disagreements that would have been resolved by a glance across a table turned into multi-paragraph rebuttals. {--We learned that text amplifies tone--}{++Text amplifies tone++}, and you can't take back a Slack message the way you can soften a sentence mid-air. {>>GPT: This is the strongest paragraph in the piece. Consider leading with it.<<}
 
-We still default to async for anything that doesn't need a decision. Status, plans, postmortems — those don't need a meeting. But "should we ship this" is a meeting now, and "is this person doing okay" is *definitely* a meeting now. {>>Claude: Worth a sentence on how you tell the two apart in practice — readers will ask.<<}
+We still default to async for anything that doesn't need a decision. Status, plans, postmortems — those don't need a meeting. But "should we ship this" is a meeting now, and "is this person doing okay" is *definitely* a meeting now. {>>Claude: Worth a sentence on how you tell the two apart in practice — readers will ask. A few angles that would help:
+1. Does the question have a clear owner, or is it diffuse?
+2. Is the cost of a wrong answer reversible within a day?
+3. Are the stakeholders already in the same context, or do they need a recap to even start?
+
+If any of those points toward "no", that's usually a meeting.<<}
 
 The lesson wasn't that async is bad. It's that async is a tool with a cost, and we'd been pretending it was free.

@@ -48,11 +48,13 @@
   padding: 0 6px;
   margin: 0 2px;
   border-radius: 10px;
-  font-size: 0.78em;
-  line-height: 1.4;
+  font-size: 0.72em;
+  line-height: 1.5;
   cursor: pointer;
   user-select: none;
-  vertical-align: baseline;
+  /* inline-flex doesn't compute a clean text baseline; "middle" sits on the
+   * x-height which lines up with surrounding prose better than "baseline". */
+  vertical-align: middle;
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
