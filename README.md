@@ -14,7 +14,7 @@ For authoring CriticMarkup inside Obsidian yourself, use [Fevol/obsidian-criticm
 
 The intended usecase: AI agents review and comment essays and texts. This plugin is for the human side: reviewing, applying, denying, replying.
 
-[`docs/SKILL.md`](docs/SKILL.md) is a starting-point reviewer prompt, adapt it to your own reviewing needs. It explicitly forbids the AI from writing any kind of text. All text is human-written. The AI just finds issues, errors and challenges arguments.
+[`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md) is a starting-point reviewer prompt, adapt it to your own reviewing needs. It explicitly forbids the AI from writing any kind of text. All text is human-written. The AI just finds issues, errors and challenges arguments.
 
 ## Features
 
