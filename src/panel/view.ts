@@ -52,6 +52,13 @@ export interface PanelHost {
   app: App;
   /** Get the file the panel should display, or null if none. */
   getActiveFile(): TFile | null;
+  /**
+   * Get the current source for a file from the live editor if one is open,
+   * else null. The panel prefers this over `vault.cachedRead` because the
+   * cache can briefly return pre-edit content immediately after the host
+   * dispatches a CM transaction (Obsidian's editor→vault sync is debounced).
+   */
+  getCurrentSource(file: TFile): string | null;
   /** Apply a list of edits to a file, preserving undo history when possible. */
   applyEdits(file: TFile, edits: SourceEdit[]): Promise<void>;
   /** Scroll the editor to a source offset and flash a highlight. */
@@ -157,15 +164,23 @@ export class ReviewPanelView extends ItemView {
     if (preloadedSource !== undefined) {
       source = preloadedSource;
     } else {
-      try {
-        source = await this.app.vault.cachedRead(file);
-      } catch {
+      // Prefer the live editor over vault.cachedRead. The cache can briefly
+      // return pre-edit content right after we dispatch a CM transaction,
+      // which would re-render a card we just removed (visible flicker).
+      const live = this.host.getCurrentSource(file);
+      if (live !== null) {
+        source = live;
+      } else {
+        try {
+          source = await this.app.vault.cachedRead(file);
+        } catch {
+          if (seq !== this.refreshSeq) return;
+          this.contentEl.empty();
+          this.contentEl.createEl("p", { cls: "tc-empty", text: "Could not read file." });
+          return;
+        }
         if (seq !== this.refreshSeq) return;
-        this.contentEl.empty();
-        this.contentEl.createEl("p", { cls: "tc-empty", text: "Could not read file." });
-        return;
       }
-      if (seq !== this.refreshSeq) return;
     }
 
     // Skip the rebuild if nothing changed — e.g. the delayed vault `modify`

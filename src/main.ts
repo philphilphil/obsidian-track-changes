@@ -100,6 +100,12 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         return file && file.extension === "md" ? file : null;
       },
+      getCurrentSource: (file) => {
+        const editor = this.findEditorForFile(file);
+        if (!editor) return null;
+        const cm = (editor as unknown as { cm?: EditorView }).cm;
+        return cm ? cm.state.doc.toString() : editor.getValue();
+      },
       applyEdits: async (file, edits) => {
         await this.applyEditsToFile(file, edits);
       },
