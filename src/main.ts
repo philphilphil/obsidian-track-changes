@@ -110,6 +110,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         await this.applyEditsToFile(file, edits);
       },
       revealOffset: (file, offset, length) => this.revealOffsetInEditor(file, offset, length),
+      isFileOpen: (file) => this.findEditorForFile(file) !== null,
     };
     return new ReviewPanelView(leaf, host);
   }

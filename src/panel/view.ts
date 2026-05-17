@@ -63,6 +63,8 @@ export interface PanelHost {
   applyEdits(file: TFile, edits: SourceEdit[]): Promise<void>;
   /** Scroll the editor to a source offset and flash a highlight. */
   revealOffset(file: TFile, offset: number, length: number): void;
+  /** True if the file is currently open in any markdown leaf. */
+  isFileOpen(file: TFile): boolean;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -128,6 +130,14 @@ export class ReviewPanelView extends ItemView {
 
   private onActiveFileChanged(): void {
     const file = this.host.getActiveFile();
+    // If no markdown file is active but the last one is still open in a tab,
+    // keep showing it. The Terminal plugin's xterm canvas grabs focus inside
+    // its leaf without always going through Obsidian's leaf-focus path, so
+    // clicking back into the markdown pane may not fire another
+    // active-leaf-change — without this guard the panel would stay blank.
+    if (file === null && this.currentFile && this.host.isFileOpen(this.currentFile)) {
+      return;
+    }
     if (file !== this.currentFile) {
       this.currentFile = file;
       this.replyDrafts.clear();
