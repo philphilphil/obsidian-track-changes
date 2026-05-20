@@ -109,7 +109,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       applyEdits: async (file, edits) => {
         await this.applyEditsToFile(file, edits);
       },
-      revealOffset: (file, offset, length) => this.revealOffsetInEditor(file, offset, length),
+      revealOffset: (file, offset, length, flashChip) =>
+        this.revealOffsetInEditor(file, offset, length, flashChip ?? false),
       isFileOpen: (file) => this.findEditorForFile(file) !== null,
     };
     return new ReviewPanelView(leaf, host);
@@ -121,10 +122,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       await this.app.workspace.revealLeaf(existing[0]);
       return;
     }
-    const leaf =
-      this.settings.panelSide === "left"
-        ? this.app.workspace.getLeftLeaf(false)
-        : this.app.workspace.getRightLeaf(false);
+    const leaf = this.app.workspace.getRightLeaf(false);
     if (!leaf) {
       new Notice("Could not open review panel.");
       return;
@@ -270,34 +268,69 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
 
   // ---- reveal/scroll ----
 
-  private revealOffsetInEditor(file: TFile, offset: number, length: number): void {
+  private revealOffsetInEditor(
+    file: TFile,
+    offset: number,
+    length: number,
+    flashChip: boolean,
+  ): void {
     const editor = this.findEditorForFile(file);
     if (!editor) {
       // Open the file in a new leaf if not visible, then reveal.
       void this.app.workspace.openLinkText(file.path, "", false).then(() => {
         const ed = this.findEditorForFile(file);
-        if (ed) this.scrollEditor(ed, offset, length);
+        if (ed) this.scrollEditor(ed, offset, length, flashChip);
       });
       return;
     }
-    this.scrollEditor(editor, offset, length);
+    this.scrollEditor(editor, offset, length, flashChip);
   }
 
-  private scrollEditor(editor: Editor, offset: number, length: number): void {
+  private scrollEditor(
+    editor: Editor,
+    offset: number,
+    length: number,
+    flashChip: boolean,
+  ): void {
     // See applyEditsToFile for the rationale on accessing `editor.cm`.
+    // By default we do NOT move the selection: placing the cursor inside a
+    // CriticMarkup range causes Live Preview to unrender the decoration and
+    // expose the raw `{>>…<<}` syntax. The `revealMarkupOnCommentJump` setting
+    // lets users opt into that behavior — useful for those who want to edit
+    // the markup source directly after jumping.
+    const revealMarkup = flashChip && this.settings.revealMarkupOnCommentJump;
     const cm = (editor as unknown as { cm?: EditorView }).cm;
     if (cm) {
       cm.dispatch({
-        selection: { anchor: offset, head: offset + length },
-        scrollIntoView: true,
+        selection: revealMarkup ? { anchor: offset, head: offset + length } : undefined,
         effects: EditorView.scrollIntoView(offset, { y: "center" }),
       });
+      if (flashChip) this.flashChipAt(cm, offset);
       return;
     }
     const from = editor.offsetToPos(offset);
     const to = editor.offsetToPos(offset + length);
-    editor.setSelection(from, to);
+    if (revealMarkup) editor.setSelection(from, to);
     editor.scrollIntoView({ from, to }, true);
+  }
+
+  private flashChipAt(cm: EditorView, offset: number): void {
+    // The chip may not be in the rendered viewport yet — CM6 renders
+    // decorations lazily, and the scrollIntoView effect above triggers a
+    // viewport update on the next measure cycle. Wait one frame so the chip
+    // element exists in the DOM before we add the flash class.
+    window.requestAnimationFrame(() => {
+      const chip = cm.dom.querySelector<HTMLElement>(
+        `.tc-chip[data-tc-offset="${offset}"]`,
+      );
+      if (!chip) return;
+      chip.removeClass("tc-chip-flash");
+      // Force a reflow so re-adding the class restarts the animation if the
+      // user clicks the same card twice in quick succession.
+      void chip.offsetWidth;
+      chip.addClass("tc-chip-flash");
+      window.setTimeout(() => chip.removeClass("tc-chip-flash"), 1500);
+    });
   }
 
   // ---- finalize ----

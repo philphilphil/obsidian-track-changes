@@ -3,17 +3,21 @@ import type TrackChangesCriticMarkupPlugin from "./main";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 
 export interface TrackChangesCriticMarkupSettings {
-  /** Where to open the review panel by default. */
-  panelSide: "left" | "right";
   /** How reading mode renders suggestions. */
   readingMode: "accepted" | "raw";
+  /**
+   * When jumping to a comment from the panel, also select the raw markup so
+   * Live Preview unrenders the chip and exposes the `{>>…<<}` source. Off by
+   * default — most users prefer the chip to stay rendered after the jump.
+   */
+  revealMarkupOnCommentJump: boolean;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
 
 export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
-  panelSide: "right",
   readingMode: "accepted",
+  revealMarkupOnCommentJump: false,
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -30,20 +34,6 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Panel side")
-      .setDesc("Which sidebar the review panel opens in by default.")
-      .addDropdown((d) =>
-        d
-          .addOption("right", "Right")
-          .addOption("left", "Left")
-          .setValue(this.plugin.settings.panelSide)
-          .onChange(async (v) => {
-            this.plugin.settings.panelSide = v as "left" | "right";
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
       .setName("Reading mode for suggestions")
       .setDesc(
         "How suggestions render in reading mode. 'Accepted' previews the post-publish version; 'Raw' shows old/new side by side.",
@@ -57,6 +47,18 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
             this.plugin.settings.readingMode = v as "accepted" | "raw";
             await this.plugin.saveSettings();
           }),
+      );
+
+    new Setting(containerEl)
+      .setName("Reveal CriticMarkup on comment jump")
+      .setDesc(
+        "When clicking a comment card, also select the markup so its raw {>>…<<} source is shown. Off by default — the chip stays rendered.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.revealMarkupOnCommentJump).onChange(async (v) => {
+          this.plugin.settings.revealMarkupOnCommentJump = v;
+          await this.plugin.saveSettings();
+        }),
       );
 
     new Setting(containerEl).setName("Finalize for publish — defaults").setHeading();

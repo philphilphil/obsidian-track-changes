@@ -63,6 +63,19 @@
 .tc-chip:hover {
   background: var(--background-modifier-hover);
 }
+@keyframes tc-chip-blink {
+  0%, 33%, 66%, 100% {
+    box-shadow: 0 0 0 0 var(--interactive-accent);
+    filter: brightness(1);
+  }
+  16%, 50%, 83% {
+    box-shadow: 0 0 0 2px var(--interactive-accent);
+    filter: brightness(1.25);
+  }
+}
+.tc-chip-flash {
+  animation: tc-chip-blink 1.2s ease-in-out;
+}
 .tc-chip-you {
   border-color: rgba(0, 122, 204, 0.4);
   background: rgba(0, 122, 204, 0.08);

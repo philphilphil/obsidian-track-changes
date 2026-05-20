@@ -61,8 +61,13 @@ export interface PanelHost {
   getCurrentSource(file: TFile): string | null;
   /** Apply a list of edits to a file, preserving undo history when possible. */
   applyEdits(file: TFile, edits: SourceEdit[]): Promise<void>;
-  /** Scroll the editor to a source offset and flash a highlight. */
-  revealOffset(file: TFile, offset: number, length: number): void;
+  /**
+   * Scroll the editor to a source offset. If `flashChip` is true, the target
+   * is treated as a comment chip: the chip blinks briefly so it's easier to
+   * spot after the scroll. The `revealMarkupOnCommentJump` setting controls
+   * whether the cursor also selects the markup (revealing its raw source).
+   */
+  revealOffset(file: TFile, offset: number, length: number, flashChip?: boolean): void;
   /** True if the file is currently open in any markdown leaf. */
   isFileOpen(file: TFile): boolean;
 }
@@ -281,7 +286,7 @@ export class ReviewPanelView extends ItemView {
       }
       if (target.closest(".tc-card-actions, .tc-message, .tc-reply, button, textarea, input"))
         return;
-      this.host.revealOffset(file, thread.from, thread.to - thread.from);
+      this.host.revealOffset(file, thread.from, thread.to - thread.from, true);
     });
 
     const root = parsed.nodes[thread.rootIndex] as CommentNode;

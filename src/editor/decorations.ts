@@ -54,6 +54,7 @@ class ThreadChipWidget extends WidgetType {
   toDOM(): HTMLElement {
     const chip = activeDocument.createElement("span");
     chip.className = `tc-chip tc-chip-${this.authorName ? "named" : "you"}`;
+    chip.setAttr("data-tc-offset", String(this.offset));
     if (this.authorName) {
       chip.setAttr("data-author-hue", String(authorHueIndex(this.authorName)));
     }
