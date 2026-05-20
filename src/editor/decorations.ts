@@ -27,6 +27,13 @@ import { authorHueIndex } from "../authors";
 export interface DecorationCallbacks {
   /** User clicked the inline rendering for the markup at this source offset. */
   onClick: (sourceOffset: number) => void;
+  /**
+   * Returns true if a click on a markup chip / mark should be hijacked to
+   * open the review panel. When false, the click is left alone so CM6 can
+   * place the cursor or expose the raw markup for editing. (Typically wired
+   * to `settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey`.)
+   */
+  shouldOpenPanel: (event: MouseEvent) => boolean;
 }
 
 class ThreadChipWidget extends WidgetType {
@@ -37,6 +44,7 @@ class ThreadChipWidget extends WidgetType {
     readonly offset: number,
     readonly tooltip: string,
     readonly onClick: (offset: number) => void,
+    readonly shouldOpenPanel: (event: MouseEvent) => boolean,
   ) {
     super();
   }
@@ -77,6 +85,11 @@ class ThreadChipWidget extends WidgetType {
     }
 
     chip.addEventListener("mousedown", (e) => {
+      // Only hijack the click if the user has opted into click-to-open or is
+      // holding a modifier. Otherwise let CM6 handle it — the cursor lands
+      // adjacent to the widget so the user can arrow into the markup and
+      // unrender it for editing (issue #7).
+      if (!this.shouldOpenPanel(e)) return;
       e.preventDefault();
       e.stopPropagation();
       this.onClick(this.offset);
@@ -183,6 +196,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         t.from,
         threadTooltip(t, parsed.nodes),
         callbacks.onClick,
+        callbacks.shouldOpenPanel,
       );
       builder.add(
         t.from,
@@ -269,6 +283,11 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
       if (offsetAttr == null) return false;
       const offset = Number(offsetAttr);
       if (Number.isNaN(offset)) return false;
+      // Plain click on inline-text marks (addition/deletion/highlight) and
+      // chip/substitution widgets is only hijacked when the user has opted
+      // in or is holding a modifier — otherwise the editor places the
+      // cursor as usual (issue #7).
+      if (!callbacks.shouldOpenPanel(event)) return false;
       event.preventDefault();
       event.stopPropagation();
       callbacks.onClick(offset);

@@ -11,6 +11,14 @@ export interface TrackChangesCriticMarkupSettings {
    * default — most users prefer the chip to stay rendered after the jump.
    */
   revealMarkupOnCommentJump: boolean;
+  /**
+   * When ON, a plain click on any inline mark opens the review panel (legacy
+   * behavior). When OFF (default), plain click places the cursor / lets the
+   * editor handle the click normally, and Cmd/Ctrl-click opens the panel.
+   * Off is friendlier for authors who edit alongside annotations; on suits
+   * review-only workflows. Issue #7.
+   */
+  clickMarksToOpenPanel: boolean;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -18,6 +26,7 @@ export interface TrackChangesCriticMarkupSettings {
 export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   readingMode: "accepted",
   revealMarkupOnCommentJump: false,
+  clickMarksToOpenPanel: false,
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -57,6 +66,18 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(this.plugin.settings.revealMarkupOnCommentJump).onChange(async (v) => {
           this.plugin.settings.revealMarkupOnCommentJump = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Click marks to open in panel")
+      .setDesc(
+        "When ON, clicking any rendered CriticMarkup mark opens the review panel. When OFF (default), plain click places the cursor and Cmd/Ctrl-click opens the panel — friendlier if you're editing prose alongside the annotations.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.clickMarksToOpenPanel).onChange(async (v) => {
+          this.plugin.settings.clickMarksToOpenPanel = v;
           await this.plugin.saveSettings();
         }),
       );

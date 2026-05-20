@@ -32,6 +32,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.registerEditorExtension(
       criticDecorationsExtension({
         onClick: (offset) => this.handleInlineClick(offset),
+        shouldOpenPanel: (event) =>
+          this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       }),
     );
 
