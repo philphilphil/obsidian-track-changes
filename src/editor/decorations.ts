@@ -20,6 +20,7 @@
 
 import { EditorView, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
 import { RangeSetBuilder, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { editorLivePreviewField } from "obsidian";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
 import { authorHueIndex } from "../authors";
@@ -27,6 +28,13 @@ import { authorHueIndex } from "../authors";
 export interface DecorationCallbacks {
   /** User clicked the inline rendering for the markup at this source offset. */
   onClick: (sourceOffset: number) => void;
+  /**
+   * Returns true if a click on a markup chip / mark should be hijacked to
+   * open the review panel. When false, the click is left alone so CM6 can
+   * place the cursor or expose the raw markup for editing. (Typically wired
+   * to `settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey`.)
+   */
+  shouldOpenPanel: (event: MouseEvent) => boolean;
 }
 
 class ThreadChipWidget extends WidgetType {
@@ -76,6 +84,10 @@ class ThreadChipWidget extends WidgetType {
       chip.createSpan({ cls: "tc-chip-badge", text: String(this.count) });
     }
 
+    // Chips are button-like UI elements (icon + author label + count badge)
+    // — they have no underlying prose for a cursor to land in. Any click
+    // opens the panel; the `clickMarksToOpenPanel` setting only governs the
+    // inline-text marks (addition/deletion/highlight). Issue #7.
     chip.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -94,6 +106,8 @@ class SubstitutionWidget extends WidgetType {
     readonly oldText: string,
     readonly newText: string,
     readonly offset: number,
+    readonly onClick: (offset: number) => void,
+    readonly shouldOpenPanel: (event: MouseEvent) => boolean,
   ) {
     super();
   }
@@ -106,14 +120,43 @@ class SubstitutionWidget extends WidgetType {
     );
   }
 
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const wrap = activeDocument.createElement("span");
     wrap.className = "tc-substitution-widget";
     wrap.setAttr("data-tc-offset", String(this.offset));
 
-    wrap.createSpan({ cls: "tc-sub-old", text: this.oldText });
+    const oldSpan = wrap.createSpan({ cls: "tc-sub-old", text: this.oldText });
     wrap.createSpan({ cls: "tc-sub-arrow", text: " → " });
-    wrap.createSpan({ cls: "tc-sub-new", text: this.newText });
+    const newSpan = wrap.createSpan({ cls: "tc-sub-new", text: this.newText });
+
+    // Plain click on the "new" or "old" half drops the cursor into that
+    // half of the raw `{~~old~>new~~}` so the user can refine the wording
+    // in place — the touch-check exposes the raw form on the next rebuild.
+    // Click on the arrow / widget padding has no obvious edit target, so
+    // it opens the panel. Cmd/Ctrl-click or `clickMarksToOpenPanel` ON
+    // forces panel for any click.
+    wrap.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.shouldOpenPanel(e)) {
+        this.onClick(this.offset);
+        return;
+      }
+      const target = e.target as Node | null;
+      if (target && newSpan.contains(target)) {
+        // Raw layout is `{~~old~>new~~}` — new starts past `{~~`+old+`~>`.
+        const newStart = this.offset + 2 + this.oldText.length + 2;
+        view.dispatch({ selection: { anchor: newStart } });
+        return;
+      }
+      if (target && oldSpan.contains(target)) {
+        const oldStart = this.offset + 2; // past `{~~`
+        view.dispatch({ selection: { anchor: oldStart } });
+        return;
+      }
+      this.onClick(this.offset);
+    });
+
     return wrap;
   }
 
@@ -137,7 +180,36 @@ function rangeTouchesSelection(state: EditorState, from: number, to: number): bo
   return false;
 }
 
+// Strict overlap with either wrapper region of an addition/deletion/highlight
+// (`[from, innerFrom)` or `(innerTo, to]`). Cursor sitting *exactly* at
+// `innerFrom` or `innerTo` (the visible edges of the inner text) is treated
+// as inside the inner text, not the wrapper — so a click that lands on the
+// first/last visible character doesn't trigger a wrapper-expose and reflow
+// the line under the cursor (issue #7).
+function selectionTouchesWrapperRegions(
+  state: EditorState,
+  from: number,
+  innerFrom: number,
+  innerTo: number,
+  to: number,
+): boolean {
+  for (const range of state.selection.ranges) {
+    if (range.from < innerFrom && range.to > from) return true;
+    if (range.from < to && range.to > innerTo) return true;
+  }
+  return false;
+}
+
 function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): DecorationSet {
+  // Source Mode shows raw markdown by design — hiding `{++ ++}` behind a
+  // styled mark or replacing a comment with a chip widget defeats the
+  // user's reason for being in Source Mode. Skip the editor decorations
+  // entirely; reading-mode rendering is handled separately by
+  // `makeReadingPostProcessor`.
+  if (!state.field(editorLivePreviewField, false)) {
+    return Decoration.none;
+  }
+
   const source = state.doc.toString();
   const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
@@ -193,7 +265,21 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     }
 
     const n = item.node;
-    if (rangeTouchesSelection(state, n.from, n.to)) continue;
+
+    // Addition/deletion/highlight render as: hidden `{++` / styled inner text
+    // / hidden `++}`. Exposing the wrappers when the cursor merely lands in
+    // the inner text causes the line to reflow under the cursor (issue #7) —
+    // only expose when the selection actually overlaps a wrapper region,
+    // with the inner-side boundary strict. Chips/substitutions still expose
+    // raw when the cursor touches their boundary (via arrow keys), so a user
+    // can still edit raw without leaving Live Preview.
+    if (n.kind === "addition" || n.kind === "deletion" || n.kind === "highlight") {
+      const innerFrom = n.from + 3;
+      const innerTo = n.to - 3;
+      if (selectionTouchesWrapperRegions(state, n.from, innerFrom, innerTo, n.to)) continue;
+    } else if (rangeTouchesSelection(state, n.from, n.to)) {
+      continue;
+    }
 
     if (n.kind === "addition") {
       const innerFrom = n.from + 3; // length of "{++"
@@ -226,7 +312,13 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         n.from,
         n.to,
         Decoration.replace({
-          widget: new SubstitutionWidget(n.oldText, n.newText, n.from),
+          widget: new SubstitutionWidget(
+            n.oldText,
+            n.newText,
+            n.from,
+            callbacks.onClick,
+            callbacks.shouldOpenPanel,
+          ),
           inclusive: false,
         }),
       );
@@ -252,10 +344,12 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
       return buildDecorations(state, callbacks);
     },
     update(deco, tr) {
-      // Recompute when the doc or selection actually changed — matches the
-      // gate the old ViewPlugin used, avoids rebuilding on every keystroke
-      // that doesn't move the cursor or alter the doc.
-      if (!tr.docChanged && !tr.selection) return deco;
+      // Recompute when the doc/selection changes or when the editor flips
+      // between Live Preview and Source Mode (so widgets disappear/reappear
+      // as appropriate). Otherwise skip the work.
+      const prevLP = tr.startState.field(editorLivePreviewField, false);
+      const nextLP = tr.state.field(editorLivePreviewField, false);
+      if (!tr.docChanged && !tr.selection && prevLP === nextLP) return deco;
       return buildDecorations(tr.state, callbacks);
     },
     provide: (f) => EditorView.decorations.from(f),
@@ -269,6 +363,11 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
       if (offsetAttr == null) return false;
       const offset = Number(offsetAttr);
       if (Number.isNaN(offset)) return false;
+      // Plain click on inline-text marks (addition/deletion/highlight) and
+      // chip/substitution widgets is only hijacked when the user has opted
+      // in or is holding a modifier — otherwise the editor places the
+      // cursor as usual (issue #7).
+      if (!callbacks.shouldOpenPanel(event)) return false;
       event.preventDefault();
       event.stopPropagation();
       callbacks.onClick(offset);
