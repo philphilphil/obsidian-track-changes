@@ -145,9 +145,6 @@
 .cm-strikethrough:has(.tc-sub-raw-old, .tc-sub-raw-new) + .cm-formatting-strikethrough {
   text-decoration: none;
 }
-.tc-highlight {
-  background: rgba(252, 211, 77, 0.35);
-}
 
 /* ---------- Right panel ---------- */
 

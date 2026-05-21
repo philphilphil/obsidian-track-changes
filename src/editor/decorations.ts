@@ -268,7 +268,6 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         innerFrom,
         innerTo,
         Decoration.mark({
-          class: "tc-highlight",
           attributes: { "data-tc-offset": String(n.from) },
         }),
       );
