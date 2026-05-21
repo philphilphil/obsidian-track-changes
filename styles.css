@@ -105,7 +105,6 @@
 
 .tc-addition {
   background: rgba(56, 161, 105, 0.12);
-  border-bottom: 1px solid rgba(56, 161, 105, 0.6);
 }
 .tc-deletion {
   background: rgba(220, 38, 38, 0.08);
@@ -117,7 +116,6 @@
 }
 .tc-sub-new {
   background: rgba(56, 161, 105, 0.12);
-  border-bottom: 1px solid rgba(56, 161, 105, 0.6);
 }
 .tc-sub-raw-old {
   background: rgba(220, 38, 38, 0.06);
