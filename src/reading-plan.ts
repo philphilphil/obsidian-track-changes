@@ -38,6 +38,8 @@ export function sectionCharRange(
 
 export interface IntersectingOp {
   node: CriticNode;
+  /** Index of `node` within `parsed.nodes`. */
+  nodeIndex: number;
   /** Opening brace is inside this section. */
   openIn: boolean;
   /** Closing brace is inside this section. */
@@ -50,10 +52,12 @@ export function intersectingOps(
   secTo: number,
 ): IntersectingOp[] {
   const out: IntersectingOp[] = [];
-  for (const n of parsed.nodes) {
+  for (let i = 0; i < parsed.nodes.length; i++) {
+    const n = parsed.nodes[i];
     if (n.to <= secFrom || n.from >= secTo) continue;
     out.push({
       node: n,
+      nodeIndex: i,
       openIn: n.from >= secFrom && n.from < secTo,
       closeIn: n.to > secFrom && n.to <= secTo,
     });

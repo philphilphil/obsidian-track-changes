@@ -97,11 +97,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   rerenderReadingViews(): void {
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
       const view = leaf.view;
-      if (view instanceof MarkdownView) {
-        const preview = (view as unknown as { previewMode?: { rerender: (full?: boolean) => void } })
-          .previewMode;
-        if (preview?.rerender) preview.rerender(true);
-      }
+      if (view instanceof MarkdownView) view.previewMode?.rerender(true);
     });
   }
 

@@ -75,6 +75,8 @@ test("intersectingOps: in-section, before, after", () => {
   assert.equal(ops[0].node.text, "b");
   assert.equal(ops[0].openIn, true);
   assert.equal(ops[0].closeIn, true);
+  // nodeIndex must point to the same node in parsed.nodes.
+  assert.equal(parsed.nodes[ops[0].nodeIndex], ops[0].node);
 });
 
 test("intersectingOps: open-only (markup starts in section, ends after)", () => {

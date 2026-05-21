@@ -150,10 +150,11 @@ function locateAll(
     const loc: LocatedOp = { op };
     if (op.openIn) {
       const found = locateOpen(el, op.node, cursor);
-      if (!found) continue;
-      loc.openRange = found.range;
-      if (found.wrapEl) loc.wrapEl = found.wrapEl;
-      cursor = found.range.end;
+      if (found) {
+        loc.openRange = found.range;
+        if (found.wrapEl) loc.wrapEl = found.wrapEl;
+        cursor = found.range.end;
+      }
     }
     if (op.node.kind === "substitution") {
       // The `~>` separator survives Obsidian's renderer verbatim. Only locate
@@ -171,10 +172,19 @@ function locateAll(
     }
     if (op.closeIn) {
       const found = locateClose(el, op.node, cursor);
-      if (!found) continue;
-      loc.closeRange = found.range;
-      cursor = found.range.end;
+      if (found) {
+        loc.closeRange = found.range;
+        cursor = found.range.end;
+      }
     }
+    // Body-removing kinds need both expected endpoints — using
+    // startOfElement/endOfElement as fallback would over-delete surrounding
+    // content. For token-only kinds (addition, highlight) and substitution,
+    // applyLocated handles any subset of located ranges safely.
+    const bodyRemoving = op.node.kind === "deletion" || op.node.kind === "comment";
+    if (bodyRemoving && op.openIn && !loc.openRange) continue;
+    if (bodyRemoving && op.closeIn && !loc.closeRange) continue;
+    if (!loc.openRange && !loc.closeRange && !loc.arrowRange) continue;
     out.push(loc);
   }
   return out;
@@ -279,14 +289,14 @@ function locateBracedWrapper(
     while (idx >= 0) {
       const tail = text.substring(idx + 1);
       if (/^\s*$/.test(tail)) {
-        const next = nextDocumentSibling(node, el);
-        if (next && next.nodeType === 1 && tags.includes((next as Element).tagName)) {
+        const wrap = nextMatchingElement(node, el, tags);
+        if (wrap) {
           return {
             range: {
               start: { node, offset: idx },
               end: { node, offset: idx + 1 },
             },
-            wrapEl: next as Element,
+            wrapEl: wrap,
           };
         }
       }
@@ -294,6 +304,34 @@ function locateBracedWrapper(
     }
     node = nextWalkableText(el, node);
     offset = 0;
+  }
+  return null;
+}
+
+/**
+ * Walk forward in document order from `from`, skipping whitespace-only text
+ * nodes, and return the next element whose tagName is in `tags`. Returns
+ * null if anything else is encountered first — we only treat `<mark>` etc.
+ * as the wrapper if it's the next significant node.
+ */
+function nextMatchingElement(
+  from: Text,
+  root: HTMLElement,
+  tags: string[],
+): Element | null {
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+  );
+  walker.currentNode = from;
+  let n = walker.nextNode();
+  while (n) {
+    if (n.nodeType === 3) {
+      if (!/^\s*$/.test((n as Text).nodeValue ?? "")) return null;
+    } else if (n.nodeType === 1) {
+      return tags.includes((n as Element).tagName) ? (n as Element) : null;
+    }
+    n = walker.nextNode();
   }
   return null;
 }
@@ -366,8 +404,8 @@ function applyLocated(
       return;
     }
     case "comment": {
-      const idx = parsed.nodes.indexOf(node);
-      const wantIcon = opts.showComments && idx >= 0 && iconTargets.has(idx);
+      const idx = op.nodeIndex;
+      const wantIcon = opts.showComments && iconTargets.has(idx);
       const insertion = removeSpan(doc, el, openRange ?? null, closeRange ?? null);
       if (wantIcon && insertion) {
         const icon = makeCommentIcon(doc, parsed, idx);
@@ -525,18 +563,6 @@ function nextWalkableText(root: HTMLElement, after: Text): Text | null {
   const w = makeWalker(root);
   w.currentNode = after;
   return w.nextNode() as Text | null;
-}
-
-function nextDocumentSibling(textNode: Text, root: HTMLElement): Node | null {
-  // Walk forward in document order from textNode and return the next node
-  // (any type) that's not a descendant of textNode itself. We don't filter
-  // here — caller decides what to do with the result.
-  const docWalker = root.ownerDocument.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-  );
-  docWalker.currentNode = textNode;
-  return docWalker.nextNode();
 }
 
 // ---------- Safety-net DOM cleanup ----------
