@@ -40,7 +40,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // Reading-mode post-processor.
     this.registerMarkdownPostProcessor(
       makeReadingPostProcessor(() => ({
-        suggestions: this.settings.readingMode,
+        showComments: this.settings.readingShowComments,
       })),
     );
 
@@ -91,6 +91,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  /** Force open reading-mode previews to re-run post-processors. */
+  rerenderReadingViews(): void {
+    this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+      const view = leaf.view;
+      if (view instanceof MarkdownView) view.previewMode?.rerender(true);
+    });
   }
 
   // ---- host implementation for the panel ----

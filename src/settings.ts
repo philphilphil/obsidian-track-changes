@@ -3,8 +3,12 @@ import type TrackChangesCriticMarkupPlugin from "./main";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 
 export interface TrackChangesCriticMarkupSettings {
-  /** How reading mode renders suggestions. */
-  readingMode: "accepted" | "raw";
+  /**
+   * Show comment icons in reading mode. On by default — each thread renders
+   * as a single inline icon; hovering reveals the full thread. Turn off for
+   * a clean publish preview with no review artifacts.
+   */
+  readingShowComments: boolean;
   /**
    * When jumping to a comment from the panel, also select the raw markup so
    * Live Preview unrenders the chip and exposes the `{>>…<<}` source. Off by
@@ -17,7 +21,7 @@ export interface TrackChangesCriticMarkupSettings {
 }
 
 export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
-  readingMode: "accepted",
+  readingShowComments: true,
   revealMarkupOnCommentJump: false,
   clickMarksToOpenPanel: false,
   finalize: { ...DEFAULT_FINALIZE },
@@ -36,19 +40,16 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Reading mode for suggestions")
+      .setName("Show comments in reading view")
       .setDesc(
-        "How suggestions render in reading mode. 'Accepted' previews the post-publish version; 'Raw' shows old/new side by side.",
+        "When on (default), each comment thread renders as a small icon — hover to see the full thread. Turn off for a clean publish preview with no review artifacts. Suggestions (additions, deletions, substitutions, highlights) are always shown in their accepted form.",
       )
-      .addDropdown((d) =>
-        d
-          .addOption("accepted", "Accepted form")
-          .addOption("raw", "Raw (both sides)")
-          .setValue(this.plugin.settings.readingMode)
-          .onChange(async (v) => {
-            this.plugin.settings.readingMode = v as "accepted" | "raw";
-            await this.plugin.saveSettings();
-          }),
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.readingShowComments).onChange(async (v) => {
+          this.plugin.settings.readingShowComments = v;
+          await this.plugin.saveSettings();
+          this.plugin.rerenderReadingViews();
+        }),
       );
 
     new Setting(containerEl)

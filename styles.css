@@ -442,31 +442,16 @@
 /* ---------- Reading mode ---------- */
 
 .tc-rm-comment {
-  display: inline-block;
-  font-size: 0.85em;
-  margin: 0 1px;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin: 0 2px;
   color: var(--text-muted);
   cursor: help;
 }
-.tc-rm-comment-you {
-  color: rgba(0, 122, 204, 0.85);
-}
-.tc-rm-comment-named {
-  /* color comes from [data-author-hue="N"] selectors above */
-}
-.tc-rm-addition {
-  background: rgba(56, 161, 105, 0.12);
-  border-bottom: 1px solid rgba(56, 161, 105, 0.5);
-}
-.tc-rm-deletion {
-  background: rgba(220, 38, 38, 0.08);
-  text-decoration: line-through;
-}
-.tc-rm-substitution {
-  display: inline;
-}
-.tc-rm-highlight {
-  background: rgba(252, 211, 77, 0.35);
+.tc-rm-comment .svg-icon {
+  width: 1em;
+  height: 1em;
 }
 
 /* ---------- Finalize modal ---------- */
