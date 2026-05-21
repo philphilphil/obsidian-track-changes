@@ -138,19 +138,18 @@
   font-size: 0.9em;
   cursor: pointer;
 }
-/* Suppress Obsidian's `~~…~~` strikethrough across CriticMarkup
- * substitutions. Obsidian's Live Preview uses .cm-strikethrough for the
- * content between `~~` and .cm-formatting-strikethrough for the markers
- * themselves; the markers sit as direct siblings of the content span.
- * We scope via :has() so real `~~strike~~` elsewhere on the line is
- * unaffected — only the .cm-strikethrough span that actually contains
- * one of our substitution marks is matched. */
-.cm-strikethrough:has(.tc-sub-old, .tc-sub-new, .tc-sub-raw-old, .tc-sub-raw-new) {
-  text-decoration: none;
-}
-.cm-formatting-strikethrough:has(+ .cm-strikethrough:has(.tc-sub-raw-old, .tc-sub-raw-new)),
-.cm-strikethrough:has(.tc-sub-raw-old, .tc-sub-raw-new) + .cm-formatting-strikethrough {
-  text-decoration: none;
+/* Obsidian parses `{~~old~>new~~}` as `~~strikethrough~~`, which would draw
+ * a line across our green `new` half. Making the halves inline-block turns
+ * them into atomic inline-level boxes — per the CSS Text Decoration spec,
+ * an ancestor's text-decoration does not propagate into atomic inline-level
+ * descendants, so the parent .cm-strikethrough's line stops at our box
+ * boundary. Scoped to our marks only; real ~~strike~~ elsewhere is
+ * unaffected. */
+.tc-sub-old,
+.tc-sub-new,
+.tc-sub-raw-old,
+.tc-sub-raw-new {
+  display: inline-block;
 }
 
 /* ---------- Right panel ---------- */
