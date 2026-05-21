@@ -283,14 +283,43 @@ function hiddenDecoration(): Decoration {
 }
 
 export function criticDecorationsExtension(callbacks: DecorationCallbacks): Extension {
+  // Mirror Obsidian's `livePreviewState.mousedown` gate: while a pointer drag is
+  // in progress, skip rebuilding decorations on selection changes. Obsidian's
+  // own `==` / `~~` formatting-marker hides do the same, so this keeps our
+  // wrapper hide in sync with theirs — both drop on the mouseup transaction
+  // Obsidian dispatches once the drag settles, in the same frame.
+  const dragState = { mousedown: false };
+
+  const dragTracker = EditorView.domEventHandlers({
+    mousedown(event) {
+      if (event.button !== 0) return false;
+      dragState.mousedown = true;
+      const doc = (event.view ?? window).document;
+      const handler = (e: MouseEvent): void => {
+        if (e.button !== 0) return;
+        doc.removeEventListener("mouseup", handler);
+        dragState.mousedown = false;
+      };
+      doc.addEventListener("mouseup", handler);
+      return false;
+    },
+  });
+
   const field = StateField.define<DecorationSet>({
     create(state) {
       return buildDecorations(state, callbacks);
     },
     update(deco, tr) {
+      if (tr.docChanged) return buildDecorations(tr.state, callbacks);
       const wasLP = tr.startState.field(editorLivePreviewField, false);
       const isLP = tr.state.field(editorLivePreviewField, false);
-      if (!tr.docChanged && !tr.selection && wasLP === isLP) return deco;
+      if (wasLP !== isLP) return buildDecorations(tr.state, callbacks);
+      if (!tr.selection) return deco;
+      // During an active mouse drag, defer the rebuild. Obsidian dispatches a
+      // mouseup transaction (with selection set) once the drag ends; that
+      // transaction will land here with `dragState.mousedown === false` and
+      // drive a single combined rebuild.
+      if (dragState.mousedown) return deco;
       return buildDecorations(tr.state, callbacks);
     },
     provide: (f) => EditorView.decorations.from(f),
@@ -314,5 +343,5 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
     },
   });
 
-  return [field, clickHandler];
+  return [field, dragTracker, clickHandler];
 }
