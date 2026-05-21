@@ -31,7 +31,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // CodeMirror 6 inline decorations.
     this.registerEditorExtension(
       criticDecorationsExtension({
-        onClick: (offset) => this.handleInlineClick(offset),
+        onOpenPanel: (offset) => this.handleInlineClick(offset),
+        shouldOpenPanel: (event) =>
+          this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       }),
     );
 

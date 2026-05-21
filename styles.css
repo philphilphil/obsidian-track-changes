@@ -105,7 +105,6 @@
 
 .tc-addition {
   background: rgba(56, 161, 105, 0.12);
-  border-bottom: 1px solid rgba(56, 161, 105, 0.6);
 }
 .tc-deletion {
   background: rgba(220, 38, 38, 0.08);
@@ -117,22 +116,41 @@
 }
 .tc-sub-new {
   background: rgba(56, 161, 105, 0.12);
-  border-bottom: 1px solid rgba(56, 161, 105, 0.6);
 }
-/* inline-block isolates text-decoration, so any surrounding strikethrough
- * (e.g. when Obsidian's markdown parser interprets {~~...~~} as ~~strike~~)
- * doesn't draw a line across the whole widget. */
-.tc-substitution-widget {
-  display: inline-block;
-  cursor: pointer;
-  white-space: pre-wrap;
+.tc-sub-raw-old {
+  background: rgba(220, 38, 38, 0.06);
+  text-decoration: line-through;
+}
+.tc-sub-raw-new {
+  background: rgba(56, 161, 105, 0.12);
+}
+.tc-raw-comment {
+  border-radius: 2px;
+}
+.tc-raw-comment-named {
+  background: hsla(280, 70%, 55%, 0.12); /* purple — AI */
+}
+.tc-raw-comment-you {
+  background: rgba(0, 122, 204, 0.10); /* blue — matches tc-chip-you */
 }
 .tc-sub-arrow {
   color: var(--text-muted);
   font-size: 0.9em;
+  cursor: pointer;
 }
-.tc-highlight {
-  background: rgba(252, 211, 77, 0.35);
+/* Suppress Obsidian's `~~…~~` strikethrough across CriticMarkup
+ * substitutions. Obsidian's Live Preview uses .cm-strikethrough for the
+ * content between `~~` and .cm-formatting-strikethrough for the markers
+ * themselves; the markers sit as direct siblings of the content span.
+ * We scope via :has() so real `~~strike~~` elsewhere on the line is
+ * unaffected — only the .cm-strikethrough span that actually contains
+ * one of our substitution marks is matched. */
+.cm-strikethrough:has(.tc-sub-old, .tc-sub-new, .tc-sub-raw-old, .tc-sub-raw-new) {
+  text-decoration: none;
+}
+.cm-formatting-strikethrough:has(+ .cm-strikethrough:has(.tc-sub-raw-old, .tc-sub-raw-new)),
+.cm-strikethrough:has(.tc-sub-raw-old, .tc-sub-raw-new) + .cm-formatting-strikethrough {
+  text-decoration: none;
 }
 
 /* ---------- Right panel ---------- */

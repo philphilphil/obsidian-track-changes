@@ -1,32 +1,18 @@
-// CodeMirror 6 inline rendering for CriticMarkup.
-//
-// Behaviour:
-//   - Comment threads become a single chip (Decoration.replace) showing the
-//     thread number (matches the side panel) and a message count badge.
-//     Hovering shows the full text of the thread; clicking opens the panel.
-//   - Additions/deletions/substitutions: wrapper syntax is hidden (replace
-//     empty) and the inner content gets a class (mark). Substitutions show
-//     old (strike) followed by new (underline).
-//   - When the cursor / selection touches a markup range, we leave it raw so
-//     the user can edit it directly. (Standard Obsidian live-preview trick.)
-//
-// Decorations are supplied through a StateField rather than a ViewPlugin so
-// that replace decorations are allowed to cover line breaks. CM6 forbids
-// line-break-spanning replaces when the facet value is a function (the form a
-// ViewPlugin produces); a StateField resolves to a DecorationSet directly, so
-// the restriction doesn't apply. Without this a multi-line `{>>…<<}` (e.g. an
-// LLM-authored comment containing a numbered list) would throw a RangeError
+// Decorations live in a StateField, not a ViewPlugin: replace decorations
+// that span line breaks are rejected when the facet value is a function
+// (the ViewPlugin form). A multi-line `{>>…<<}` would throw a RangeError
 // inside CM6's view build and break the editor.
 
 import { EditorView, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
 import { RangeSetBuilder, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { editorLivePreviewField } from "obsidian";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
 import { authorHueIndex } from "../authors";
 
 export interface DecorationCallbacks {
-  /** User clicked the inline rendering for the markup at this source offset. */
-  onClick: (sourceOffset: number) => void;
+  onOpenPanel: (sourceOffset: number) => void;
+  shouldOpenPanel: (event: MouseEvent) => boolean;
 }
 
 class ThreadChipWidget extends WidgetType {
@@ -76,6 +62,7 @@ class ThreadChipWidget extends WidgetType {
       chip.createSpan({ cls: "tc-chip-badge", text: String(this.count) });
     }
 
+    // Chips always open the panel — no underlying prose for a cursor.
     chip.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -89,32 +76,31 @@ class ThreadChipWidget extends WidgetType {
   }
 }
 
-class SubstitutionWidget extends WidgetType {
+class SubArrowWidget extends WidgetType {
   constructor(
-    readonly oldText: string,
-    readonly newText: string,
     readonly offset: number,
+    readonly onClick: (offset: number) => void,
   ) {
     super();
   }
 
-  eq(other: SubstitutionWidget): boolean {
-    return (
-      other.oldText === this.oldText &&
-      other.newText === this.newText &&
-      other.offset === this.offset
-    );
+  eq(other: SubArrowWidget): boolean {
+    return other.offset === this.offset;
   }
 
   toDOM(): HTMLElement {
-    const wrap = activeDocument.createElement("span");
-    wrap.className = "tc-substitution-widget";
-    wrap.setAttr("data-tc-offset", String(this.offset));
-
-    wrap.createSpan({ cls: "tc-sub-old", text: this.oldText });
-    wrap.createSpan({ cls: "tc-sub-arrow", text: " → " });
-    wrap.createSpan({ cls: "tc-sub-new", text: this.newText });
-    return wrap;
+    const span = activeDocument.createElement("span");
+    span.className = "tc-sub-arrow";
+    span.setText(" → ");
+    span.setAttr("data-tc-offset", String(this.offset));
+    span.setAttr("role", "button");
+    span.setAttr("aria-label", "Open substitution in panel");
+    span.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onClick(this.offset);
+    });
+    return span;
   }
 
   ignoreEvent(): boolean {
@@ -142,8 +128,31 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
   const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
 
-  // Walk threads in order, but we also need to emit decorations for non-comment
-  // nodes interleaved. Build a sequence of "things to decorate" sorted by from.
+  if (!state.field(editorLivePreviewField, false)) {
+    // Source Mode: keep raw markup visible, but tint comments (per author) so
+    // they stand out from prose, and mark substitution halves so the strike-
+    // suppression CSS applies — otherwise Obsidian's `~~…~~` rendering draws
+    // a line across `new` too, hiding what's being added.
+    for (const n of parsed.nodes) {
+      if (n.kind === "comment") {
+        const cls = n.authorName ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
+        builder.add(n.from, n.to, Decoration.mark({ class: cls }));
+      } else if (n.kind === "addition") {
+        builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-addition" }));
+      } else if (n.kind === "deletion") {
+        builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-deletion" }));
+      } else if (n.kind === "substitution") {
+        const oldFrom = n.from + 3;
+        const oldTo = oldFrom + n.oldText.length;
+        const newFrom = oldTo + 2;
+        const newTo = n.to - 3;
+        builder.add(oldFrom, oldTo, Decoration.mark({ class: "tc-sub-raw-old" }));
+        builder.add(newFrom, newTo, Decoration.mark({ class: "tc-sub-raw-new" }));
+      }
+    }
+    return builder.finish();
+  }
+
   type Item =
     | { kind: "thread"; thread: Thread }
     | { kind: "node"; node: CriticNode };
@@ -182,7 +191,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         root.authorName,
         t.from,
         threadTooltip(t, parsed.nodes),
-        callbacks.onClick,
+        callbacks.onOpenPanel,
       );
       builder.add(
         t.from,
@@ -193,12 +202,12 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     }
 
     const n = item.node;
-    if (rangeTouchesSelection(state, n.from, n.to)) continue;
 
     if (n.kind === "addition") {
-      const innerFrom = n.from + 3; // length of "{++"
-      const innerTo = n.to - 3; // length of "++}"
-      builder.add(n.from, innerFrom, hiddenDecoration());
+      const innerFrom = n.from + 3;
+      const innerTo = n.to - 3;
+      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
         innerFrom,
         innerTo,
@@ -207,11 +216,12 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
           attributes: { "data-tc-offset": String(n.from) },
         }),
       );
-      builder.add(innerTo, n.to, hiddenDecoration());
+      if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
     } else if (n.kind === "deletion") {
       const innerFrom = n.from + 3;
       const innerTo = n.to - 3;
-      builder.add(n.from, innerFrom, hiddenDecoration());
+      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
         innerFrom,
         innerTo,
@@ -220,22 +230,71 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
           attributes: { "data-tc-offset": String(n.from) },
         }),
       );
-      builder.add(innerTo, n.to, hiddenDecoration());
+      if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
     } else if (n.kind === "substitution") {
-      builder.add(
-        n.from,
-        n.to,
-        Decoration.replace({
-          widget: new SubstitutionWidget(n.oldText, n.newText, n.from),
-          inclusive: false,
-        }),
-      );
+      const oldFrom = n.from + 3;
+      const oldTo = oldFrom + n.oldText.length;
+      const newFrom = oldTo + 2;
+      const newTo = n.to - 3;
+      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      if (!inRange) {
+        builder.add(n.from, oldFrom, hiddenDecoration());
+        builder.add(
+          oldFrom,
+          oldTo,
+          Decoration.mark({
+            class: "tc-sub-old",
+            attributes: { "data-tc-offset": String(n.from) },
+          }),
+        );
+        builder.add(
+          oldTo,
+          newFrom,
+          Decoration.replace({
+            widget: new SubArrowWidget(n.from, callbacks.onOpenPanel),
+            inclusive: false,
+          }),
+        );
+        builder.add(
+          newFrom,
+          newTo,
+          Decoration.mark({
+            class: "tc-sub-new",
+            attributes: { "data-tc-offset": String(n.from) },
+          }),
+        );
+        builder.add(newTo, n.to, hiddenDecoration());
+      } else {
+        builder.add(
+          oldFrom,
+          oldTo,
+          Decoration.mark({
+            class: "tc-sub-raw-old",
+            attributes: { "data-tc-offset": String(n.from) },
+          }),
+        );
+        builder.add(
+          newFrom,
+          newTo,
+          Decoration.mark({
+            class: "tc-sub-raw-new",
+            attributes: { "data-tc-offset": String(n.from) },
+          }),
+        );
+      }
     } else if (n.kind === "highlight") {
       const innerFrom = n.from + 3;
       const innerTo = n.to - 3;
-      builder.add(n.from, innerFrom, hiddenDecoration());
-      builder.add(innerFrom, innerTo, Decoration.mark({ class: "tc-highlight" }));
-      builder.add(innerTo, n.to, hiddenDecoration());
+      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
+      builder.add(
+        innerFrom,
+        innerTo,
+        Decoration.mark({
+          attributes: { "data-tc-offset": String(n.from) },
+        }),
+      );
+      if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
     }
   }
 
@@ -247,15 +306,45 @@ function hiddenDecoration(): Decoration {
 }
 
 export function criticDecorationsExtension(callbacks: DecorationCallbacks): Extension {
+  // Mirror Obsidian's `livePreviewState.mousedown` gate: while a pointer drag is
+  // in progress, skip rebuilding decorations on selection changes. Obsidian's
+  // own `==` / `~~` formatting-marker hides do the same, so this keeps our
+  // wrapper hide in sync with theirs — both drop on the mouseup transaction
+  // Obsidian dispatches once the drag settles, in the same frame.
+  const dragState = { mousedown: false };
+
+  const dragTracker = EditorView.domEventHandlers({
+    mousedown(event) {
+      if (event.button !== 0) return false;
+      dragState.mousedown = true;
+      const doc = (event.view ?? window).document;
+      const handler = (e: MouseEvent): void => {
+        if (e.button !== 0) return;
+        doc.removeEventListener("mouseup", handler);
+        dragState.mousedown = false;
+      };
+      doc.addEventListener("mouseup", handler);
+      return false;
+    },
+  });
+
   const field = StateField.define<DecorationSet>({
     create(state) {
       return buildDecorations(state, callbacks);
     },
     update(deco, tr) {
-      // Recompute when the doc or selection actually changed — matches the
-      // gate the old ViewPlugin used, avoids rebuilding on every keystroke
-      // that doesn't move the cursor or alter the doc.
-      if (!tr.docChanged && !tr.selection) return deco;
+      if (tr.docChanged) return buildDecorations(tr.state, callbacks);
+      const wasLP = tr.startState.field(editorLivePreviewField, false);
+      const isLP = tr.state.field(editorLivePreviewField, false);
+      if (wasLP !== isLP) return buildDecorations(tr.state, callbacks);
+      if (!tr.selection) return deco;
+      // Source Mode decorations don't depend on the selection.
+      if (!isLP) return deco;
+      // During an active mouse drag, defer the rebuild. Obsidian dispatches a
+      // mouseup transaction (with selection set) once the drag ends; that
+      // transaction will land here with `dragState.mousedown === false` and
+      // drive a single combined rebuild.
+      if (dragState.mousedown) return deco;
       return buildDecorations(tr.state, callbacks);
     },
     provide: (f) => EditorView.decorations.from(f),
@@ -265,16 +354,19 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
     mousedown(event) {
       const target = event.target as HTMLElement | null;
       if (!target) return false;
-      const offsetAttr = target.closest("[data-tc-offset]")?.getAttribute("data-tc-offset");
-      if (offsetAttr == null) return false;
-      const offset = Number(offsetAttr);
-      if (Number.isNaN(offset)) return false;
-      event.preventDefault();
-      event.stopPropagation();
-      callbacks.onClick(offset);
-      return true;
+      const panelEl = target.closest("[data-tc-offset]") as HTMLElement | null;
+      if (!panelEl) return false;
+      const panelOffset = Number(panelEl.getAttribute("data-tc-offset"));
+      if (Number.isNaN(panelOffset)) return false;
+      if (callbacks.shouldOpenPanel(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        callbacks.onOpenPanel(panelOffset);
+        return true;
+      }
+      return false;
     },
   });
 
-  return [field, clickHandler];
+  return [field, dragTracker, clickHandler];
 }

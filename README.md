@@ -1,43 +1,37 @@
 # Track Changes
 
-Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side panel. Accept, reject, or reply.
+Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side panel. Accept, reject, or reply — straight back into the markdown, no sidecar state.
 
 ![Track Changes panel showing multi-author comments from Claude and GPT](docs/screenshot.png)
 
-## About
-
-Every CriticMarkup mark in the active note becomes a card in a side panel (and is also styled inline). Accept, reject, reply, or delete the whole thread, all changes are written straight back into the markdown as `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}`. No sidecar state.
-
-For authoring CriticMarkup inside Obsidian yourself, use [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup). It's a full-featured general-purpose plugin. 
-
-## Usage with AI
-
-The intended usecase: AI agents review and comment essays and texts. This plugin is for the human side: reviewing, applying, denying, replying.
-
-[`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md) is a starting-point reviewer prompt, adapt it to your own reviewing needs. It explicitly forbids the AI from writing any kind of text. All text is human-written. The AI just finds issues, errors and challenges arguments.
+Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` in your note; you triage them here. A starting-point reviewer prompt lives at [`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md). For *authoring* CriticMarkup yourself, see [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup).
 
 ## Features
 
-- All five CriticMarkup forms: `{++add++}`, `{--del--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}`
-- Threaded comments — adjacent `{>>...<<}` blocks with no blank line between them group into one thread
-- Multi-author support — each `<Name>:` prefix gets its own color; well-known AI names get brand-ish hues
-- Accept / reject per suggestion; delete per message or per thread; reply inline
+- All five CriticMarkup forms with inline styling and a side-panel card per mark
+- Threaded comments (adjacent `{>>…<<}` blocks), multi-author colors
+- Accept / reject per mark, reply inline, delete per message or thread
 - **Finalize for publish** — resolves all remaining markup in one pass
-- Reading mode renders either the accepted preview or raw side-by-side
-- Markup inside code blocks is left alone
+- Reading mode: accepted preview or raw side-by-side
+- Code blocks left alone
+
+## Interaction
+
+- **Click a mark** in Live Preview to edit in place — the raw markup is exposed, the color stays.
+- **⌘/Ctrl-click a mark** (or set *Click highlighted text to open in panel*) opens the side panel instead.
+- **Click a panel card** to jump the editor to its chip.
+- **Source Mode** shows raw markup verbatim.
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| Open review panel | Opens the side panel for the active note |
-| Finalize for publish | Accepts all insertions, removes all deletions and comments |
+- *Open review panel*
+- *Finalize for publish* — accept additions, drop deletions and comments, etc.
 
 ## Install
 
-**Community Plugins** → search "Track Changes", or install from [community.obsidian.md/plugins/track-changes](https://community.obsidian.md/plugins/track-changes).
+**Community Plugins** → search "Track Changes" ([community.obsidian.md](https://community.obsidian.md/plugins/track-changes)).
 
-**Manual:** drop `main.js`, `manifest.json`, `styles.css` into `<vault>/.obsidian/plugins/track-changes/` and enable in settings.
+Manual: drop `main.js`, `manifest.json`, `styles.css` into `<vault>/.obsidian/plugins/track-changes/`.
 
 ## Build
 

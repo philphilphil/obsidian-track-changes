@@ -284,7 +284,7 @@ export class ReviewPanelView extends ItemView {
         this.toggleCardCollapsed(thread.from);
         return;
       }
-      if (target.closest(".tc-card-actions, .tc-message, .tc-reply, button, textarea, input"))
+      if (target.closest(".tc-card-actions, .tc-reply, button, textarea, input"))
         return;
       this.host.revealOffset(file, thread.from, thread.to - thread.from, true);
     });

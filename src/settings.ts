@@ -11,6 +11,7 @@ export interface TrackChangesCriticMarkupSettings {
    * default — most users prefer the chip to stay rendered after the jump.
    */
   revealMarkupOnCommentJump: boolean;
+  clickMarksToOpenPanel: boolean;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -18,6 +19,7 @@ export interface TrackChangesCriticMarkupSettings {
 export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   readingMode: "accepted",
   revealMarkupOnCommentJump: false,
+  clickMarksToOpenPanel: false,
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -57,6 +59,18 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(this.plugin.settings.revealMarkupOnCommentJump).onChange(async (v) => {
           this.plugin.settings.revealMarkupOnCommentJump = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Click highlighted text to open in panel")
+      .setDesc(
+        "When ON, a plain click on inline additions, deletions, highlights, or substitution halves opens the review panel. When OFF (default), the click places the cursor inside the inner text for in-place editing. Cmd/Ctrl-click always opens the panel; comment chips always open the panel.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.clickMarksToOpenPanel).onChange(async (v) => {
+          this.plugin.settings.clickMarksToOpenPanel = v;
           await this.plugin.saveSettings();
         }),
       );
