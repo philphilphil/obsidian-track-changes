@@ -38,6 +38,10 @@ Rules:
 - Don't modify the surrounding text. Insert markup only.
 - **Comments are the default.** Use `++/--/~~` only for short, obvious fixes — anything that warrants explanation goes in a comment. Use `==` sparingly, only when you can't form a useful comment. A bare suggestion or highlight without rationale is noise.
 
+## AI-written prose label
+
+`{>>ai<<}` (body exactly `ai`, case-insensitive) is **not** a review comment — it's a passive provenance marker the plugin renders as an inline "AI" badge, flagging prose written by an AI. As a reviewer you don't author prose, so you won't emit it; if you see one, leave it alone (it isn't a thread and needs no reply). An authoring agent that *does* write prose into the note should drop a `{>>ai<<}` at the start of each paragraph it writes, so the human can see what's AI-written.
+
 ## Reply threads
 
 Adjacent `{>>...<<}` blocks form one thread. The user replies by adding a `{>>...<<}` block immediately after yours (no blank line, no prefix).

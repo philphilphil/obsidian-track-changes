@@ -2,6 +2,9 @@
 //
 // Forms:
 //   {>>text<<}        comment (Name: prefix => named author; otherwise => "You")
+//   {>>ai<<}          AI-provenance label — a comment whose whole body is the
+//                     keyword `ai` (case-insensitive). Passive marker, not a
+//                     review comment: rendered as an "AI" pill, never threaded.
 //   {++text++}        addition
 //   {--text--}        deletion
 //   {~~old~>new~~}    substitution
@@ -13,7 +16,7 @@
 
 import { AUTHOR_RE } from "./authors";
 
-export type NodeKind = "comment" | "addition" | "deletion" | "substitution" | "highlight";
+export type NodeKind = "comment" | "addition" | "deletion" | "substitution" | "highlight" | "aiLabel";
 
 export interface BaseNode {
   kind: NodeKind;
@@ -53,12 +56,31 @@ export interface HighlightNode extends BaseNode {
   text: string;
 }
 
+/**
+ * AI-provenance label. Syntactically a `{>>ai<<}` comment, but recognized as a
+ * passive marker of AI-written prose rather than a review comment — it carries
+ * no body and never joins a thread.
+ */
+export interface AiLabelNode extends BaseNode {
+  kind: "aiLabel";
+}
+
 export type CriticNode =
   | CommentNode
   | AdditionNode
   | DeletionNode
   | SubstitutionNode
-  | HighlightNode;
+  | HighlightNode
+  | AiLabelNode;
+
+/**
+ * A comment whose entire body is the keyword `ai` (case-insensitive, surrounding
+ * whitespace ignored) is an AI-provenance label, not a review comment. This is
+ * a hard contract shared with the renderers and finalize — keep it in one place.
+ */
+export function isAiLabelBody(body: string): boolean {
+  return body.trim().toLowerCase() === "ai";
+}
 
 export interface Thread {
   /** indexes into the parsed comments array */
@@ -224,6 +246,10 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   for (const m of source.matchAll(COMMENT_RE)) {
     const raw = m[0];
     const body = m[1];
+    if (isAiLabelBody(body)) {
+      nodes.push({ kind: "aiLabel", from: m.index, to: m.index + raw.length, raw });
+      continue;
+    }
     const authorMatch = body.match(AUTHOR_RE);
     const authorName = authorMatch ? authorMatch[1] : null;
     const text = authorMatch ? body.slice(authorMatch[0].length) : body;

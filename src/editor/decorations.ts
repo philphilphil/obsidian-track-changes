@@ -76,6 +76,27 @@ class ThreadChipWidget extends WidgetType {
   }
 }
 
+class AiLabelWidget extends WidgetType {
+  eq(_other: AiLabelWidget): boolean {
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const span = activeDocument.createElement("span");
+    span.className = "tc-ai-label";
+    span.setText("AI");
+    span.setAttr("aria-label", "Written by AI");
+    span.setAttr("title", "Written by AI");
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    // Passive marker — let the editor handle clicks so the cursor lands in the
+    // range and Live Preview exposes the raw `{>>ai<<}` for editing/deletion.
+    return true;
+  }
+}
+
 class SubArrowWidget extends WidgetType {
   constructor(
     readonly offset: number,
@@ -137,6 +158,8 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
       if (n.kind === "comment") {
         const cls = n.authorName ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
         builder.add(n.from, n.to, Decoration.mark({ class: cls }));
+      } else if (n.kind === "aiLabel") {
+        builder.add(n.from, n.to, Decoration.mark({ class: "tc-raw-ai-label" }));
       } else if (n.kind === "addition") {
         builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-addition" }));
       } else if (n.kind === "deletion") {
@@ -295,6 +318,16 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         }),
       );
       if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
+    } else if (n.kind === "aiLabel") {
+      // Replace `{>>ai<<}` with a static "AI" pill. When the selection touches
+      // the range, leave the raw markup exposed so it can be edited/deleted.
+      if (!rangeTouchesSelection(state, n.from, n.to)) {
+        builder.add(
+          n.from,
+          n.to,
+          Decoration.replace({ widget: new AiLabelWidget(), inclusive: false }),
+        );
+      }
     }
   }
 

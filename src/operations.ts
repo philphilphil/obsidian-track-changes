@@ -240,6 +240,7 @@ export function finalizeEdits(
   for (const n of parsed.nodes) {
     switch (n.kind) {
       case "comment":
+      case "aiLabel":
         edits.push({ from: n.from, to: n.to, insert: "", expected: n.raw });
         break;
       case "addition":
@@ -266,6 +267,7 @@ export function finalizeEdits(
  */
 export interface FinalizeSummary {
   comments: number;
+  aiLabels: number;
   additionsAccepted: number;
   additionsRejected: number;
   deletionsAccepted: number;
@@ -281,6 +283,7 @@ export function summarizeFinalize(
 ): FinalizeSummary {
   const s: FinalizeSummary = {
     comments: 0,
+    aiLabels: 0,
     additionsAccepted: 0,
     additionsRejected: 0,
     deletionsAccepted: 0,
@@ -291,6 +294,7 @@ export function summarizeFinalize(
   };
   for (const n of parsed.nodes) {
     if (n.kind === "comment") s.comments++;
+    else if (n.kind === "aiLabel") s.aiLabels++;
     else if (n.kind === "addition") {
       if (opts.additions === "accept") s.additionsAccepted++;
       else s.additionsRejected++;

@@ -41,6 +41,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.registerMarkdownPostProcessor(
       makeReadingPostProcessor(() => ({
         showComments: this.settings.readingShowComments,
+        showAiLabel: this.settings.showAiLabel,
       })),
     );
 

@@ -22,6 +22,7 @@
 import { setIcon, setTooltip, type MarkdownPostProcessorContext } from "obsidian";
 import {
   parse,
+  isAiLabelBody,
   type ParseResult,
   type CriticNode,
   type CommentNode,
@@ -37,6 +38,7 @@ import { AUTHOR_RE } from "./authors";
 
 export interface ReadingOptions {
   showComments: boolean;
+  showAiLabel: boolean;
 }
 
 export function makeReadingPostProcessor(getOpts: () => ReadingOptions) {
@@ -181,7 +183,8 @@ function locateAll(
     // startOfElement/endOfElement as fallback would over-delete surrounding
     // content. For token-only kinds (addition, highlight) and substitution,
     // applyLocated handles any subset of located ranges safely.
-    const bodyRemoving = op.node.kind === "deletion" || op.node.kind === "comment";
+    const bodyRemoving =
+      op.node.kind === "deletion" || op.node.kind === "comment" || op.node.kind === "aiLabel";
     if (bodyRemoving && op.openIn && !loc.openRange) continue;
     if (bodyRemoving && op.closeIn && !loc.closeRange) continue;
     if (!loc.openRange && !loc.closeRange && !loc.arrowRange) continue;
@@ -227,6 +230,7 @@ function openLiteral(kind: CriticNode["kind"]): string {
     case "deletion": return "{--";
     case "substitution": return "{~~";
     case "comment": return "{>>";
+    case "aiLabel": return "{>>";
     case "highlight": return "{==";
   }
 }
@@ -237,6 +241,7 @@ function closeLiteral(kind: CriticNode["kind"]): string {
     case "deletion": return "--}";
     case "substitution": return "~~}";
     case "comment": return "<<}";
+    case "aiLabel": return "<<}";
     case "highlight": return "==}";
   }
 }
@@ -413,7 +418,21 @@ function applyLocated(
       }
       return;
     }
+    case "aiLabel": {
+      const insertion = removeSpan(doc, el, openRange ?? null, closeRange ?? null);
+      if (opts.showAiLabel && insertion) insertion.insertNode(makeAiLabelPill(doc));
+      return;
+    }
   }
+}
+
+function makeAiLabelPill(doc: Document): HTMLElement {
+  const span = doc.createElement("span");
+  span.className = "tc-ai-label";
+  span.textContent = "AI";
+  span.setAttribute("aria-label", "Written by AI");
+  span.setAttribute("title", "Written by AI");
+  return span;
 }
 
 function deleteRange(doc: Document, r: DomRange): void {
@@ -673,6 +692,7 @@ function renderLiteralMatch(
   const subNew = m[5];
   const highlight = m[6];
   if (comment !== undefined) {
+    if (isAiLabelBody(comment)) return opts.showAiLabel ? makeAiLabelPill(doc) : null;
     if (!opts.showComments) return null;
     return makeFallbackIcon(doc, comment);
   }
