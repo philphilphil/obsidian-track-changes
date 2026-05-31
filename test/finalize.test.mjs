@@ -46,6 +46,7 @@ test("empty document → 0 edits, all-zero summary", () => {
   const s = summarizeFinalize(r, DEFAULT_FINALIZE);
   assert.deepEqual(s, {
     comments: 0,
+    aiLabels: 0,
     additionsAccepted: 0,
     additionsRejected: 0,
     deletionsAccepted: 0,
@@ -185,6 +186,16 @@ test("DEFAULT_FINALIZE: keep additions, keep original prose, strip comments+high
   const r = parse(src);
   const out = applyEdits(src, finalizeEdits(r, DEFAULT_FINALIZE));
   assert.equal(out, "a x b y c o d  e hl f");
+});
+
+test("aiLabel is stripped on finalize and counted separately from comments", () => {
+  const src = "Intro. {>>ai<<} A summary. {>>Claude: note<<}";
+  const r = parse(src);
+  const s = summarizeFinalize(r, DEFAULT_FINALIZE);
+  assert.equal(s.aiLabels, 1);
+  assert.equal(s.comments, 1); // the real comment, not the marker
+  const out = applyEdits(src, finalizeEdits(r, DEFAULT_FINALIZE));
+  assert.equal(out, "Intro.  A summary. ");
 });
 
 console.log("done.");

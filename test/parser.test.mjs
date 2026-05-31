@@ -117,6 +117,39 @@ test("multi-author thread (Claude root, GPT reply) preserves both names", () => 
   assert.equal(r.nodes[r.threads[0].replyIndexes[0]].authorName, "GPT");
 });
 
+test("{>>ai<<} parses as an aiLabel, not a comment", () => {
+  const r = parse("Plot summary. {>>ai<<} More text.");
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].kind, "aiLabel");
+  // Not a comment → no thread, no authorName/text fields consulted.
+  assert.equal(r.threads.length, 0);
+});
+
+test("aiLabel recognition is case- and whitespace-insensitive", () => {
+  for (const body of ["ai", "AI", "Ai", " ai ", "\tAI\t"]) {
+    const r = parse(`x {>>${body}<<} y`);
+    assert.equal(r.nodes[0].kind, "aiLabel", `body ${JSON.stringify(body)}`);
+  }
+});
+
+test("a comment that merely contains 'ai' is still a comment", () => {
+  const r = parse("{>>this is ai-generated<<}");
+  assert.equal(r.nodes[0].kind, "comment");
+  const r2 = parse("{>>AI: nice<<}"); // author prefix, not a bare marker
+  assert.equal(r2.nodes[0].kind, "comment");
+  assert.equal(r2.nodes[0].authorName, "AI");
+});
+
+test("an aiLabel between two comments does not merge them into one thread", () => {
+  const r = parse("x {>>Claude: a<<}{>>ai<<}{>>done<<} y");
+  const kinds = r.nodes.map((n) => n.kind);
+  assert.deepEqual(kinds, ["comment", "aiLabel", "comment"]);
+  // The aiLabel is not a comment, so the two real comments are separate threads.
+  assert.equal(r.threads.length, 2);
+  assert.equal(r.threads[0].replyIndexes.length, 0);
+  assert.equal(r.threads[1].replyIndexes.length, 0);
+});
+
 test("parses addition", () => {
   const r = parse("x {++hello++} y");
   assert.equal(r.nodes.length, 1);

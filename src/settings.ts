@@ -10,6 +10,13 @@ export interface TrackChangesCriticMarkupSettings {
    */
   readingShowComments: boolean;
   /**
+   * Render `{>>ai<<}` as an inline "AI" badge marking AI-written prose. On by
+   * default. Independent of `readingShowComments` — you can hide review
+   * comments for a clean preview while still seeing what's AI-written. In Live
+   * Preview the badge always shows; this governs reading view.
+   */
+  showAiLabel: boolean;
+  /**
    * When jumping to a comment from the panel, also select the raw markup so
    * Live Preview unrenders the chip and exposes the `{>>…<<}` source. Off by
    * default — most users prefer the chip to stay rendered after the jump.
@@ -22,6 +29,7 @@ export interface TrackChangesCriticMarkupSettings {
 
 export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   readingShowComments: true,
+  showAiLabel: true,
   revealMarkupOnCommentJump: false,
   clickMarksToOpenPanel: false,
   finalize: { ...DEFAULT_FINALIZE },
@@ -47,6 +55,19 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(this.plugin.settings.readingShowComments).onChange(async (v) => {
           this.plugin.settings.readingShowComments = v;
+          await this.plugin.saveSettings();
+          this.plugin.rerenderReadingViews();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Show AI label")
+      .setDesc(
+        "Mark prose written by AI with an inline \"AI\" badge. Authored as {>>ai<<}. On by default and independent of the comment toggle — turn off to hide the badge in reading view. In Live Preview the badge always shows; finalizing for publish always removes it.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.showAiLabel).onChange(async (v) => {
+          this.plugin.settings.showAiLabel = v;
           await this.plugin.saveSettings();
           this.plugin.rerenderReadingViews();
         }),

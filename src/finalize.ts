@@ -128,6 +128,7 @@ export class FinalizeModal extends Modal {
     const lines = [
       `Strip ${s.comments} comment ${s.comments === 1 ? "block" : "blocks"}.`,
     ];
+    if (s.aiLabels) lines.push(`Strip ${s.aiLabels} AI label${s.aiLabels === 1 ? "" : "s"}.`);
     if (s.additionsAccepted) lines.push(`Accept ${s.additionsAccepted} addition(s).`);
     if (s.additionsRejected) lines.push(`Reject ${s.additionsRejected} addition(s).`);
     if (s.deletionsAccepted) lines.push(`Accept ${s.deletionsAccepted} deletion(s).`);
