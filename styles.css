@@ -453,6 +453,9 @@
   width: 1em;
   height: 1em;
 }
+.tc-rm-hidden {
+  display: none;
+}
 
 /* ---------- Finalize modal ---------- */
 

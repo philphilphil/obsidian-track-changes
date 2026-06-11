@@ -25,7 +25,6 @@ import {
   type ParseResult,
   type CriticNode,
   type CommentNode,
-  type SubstitutionNode,
 } from "./parser";
 import {
   sectionCharRange,
@@ -134,7 +133,7 @@ function handleFullyInterior(el: HTMLElement, node: CriticNode): void {
   // Addition body or highlighted body: render the section as-is.
   // Deletion / comment / substitution: nothing of this section should appear.
   if (node.kind === "addition" || node.kind === "highlight") return;
-  el.style.display = "none";
+  el.addClass("tc-rm-hidden");
 }
 
 function locateAll(
@@ -160,7 +159,7 @@ function locateAll(
       // The `~>` separator survives Obsidian's renderer verbatim. Only locate
       // it if its source offset falls inside this section; otherwise the
       // arrow lives in another section and would be searched there.
-      const sub = op.node as SubstitutionNode;
+      const sub = op.node;
       const arrowSrcStart = sub.from + 3 + sub.oldText.length;
       if (arrowSrcStart >= secFrom && arrowSrcStart < secTo) {
         const arrow = locateLiteral(el, cursor, "~>");

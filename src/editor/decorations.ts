@@ -354,7 +354,7 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
     mousedown(event) {
       const target = event.target as HTMLElement | null;
       if (!target) return false;
-      const panelEl = target.closest("[data-tc-offset]") as HTMLElement | null;
+      const panelEl = target.closest("[data-tc-offset]");
       if (!panelEl) return false;
       const panelOffset = Number(panelEl.getAttribute("data-tc-offset"));
       if (Number.isNaN(panelOffset)) return false;
