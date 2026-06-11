@@ -16,6 +16,12 @@ export interface TrackChangesCriticMarkupSettings {
    */
   revealMarkupOnCommentJump: boolean;
   clickMarksToOpenPanel: boolean;
+  /**
+   * Ask for confirmation before deleting a comment message or thread from the
+   * panel. On by default. Turn off if you rely on undo / version control and
+   * find the dialog gets in the way.
+   */
+  confirmBeforeDelete: boolean;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -24,6 +30,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   readingShowComments: true,
   revealMarkupOnCommentJump: false,
   clickMarksToOpenPanel: false,
+  confirmBeforeDelete: true,
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -72,6 +79,18 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(this.plugin.settings.clickMarksToOpenPanel).onChange(async (v) => {
           this.plugin.settings.clickMarksToOpenPanel = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Confirm before deleting")
+      .setDesc(
+        "When ON (default), deleting a comment message or thread from the panel asks for confirmation. Turn off to delete immediately — useful if you rely on undo or version control.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.confirmBeforeDelete).onChange(async (v) => {
+          this.plugin.settings.confirmBeforeDelete = v;
           await this.plugin.saveSettings();
         }),
       );

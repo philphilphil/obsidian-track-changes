@@ -70,6 +70,12 @@ export interface PanelHost {
   revealOffset(file: TFile, offset: number, length: number, flashChip?: boolean): void;
   /** True if the file is currently open in any markdown leaf. */
   isFileOpen(file: TFile): boolean;
+  /**
+   * Whether destructive panel actions (delete message / thread) should prompt
+   * for confirmation. Reads the live setting so it reflects changes made while
+   * the panel is open.
+   */
+  confirmBeforeDelete(): boolean;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -603,6 +609,7 @@ export class ReviewPanelView extends ItemView {
     message: string,
     confirmText: string,
   ): Promise<boolean> {
+    if (!this.host.confirmBeforeDelete()) return Promise.resolve(true);
     return new Promise((resolve) => {
       new ConfirmActionModal(this.app, title, message, confirmText, resolve).open();
     });
