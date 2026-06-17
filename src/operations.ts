@@ -179,15 +179,32 @@ export function deleteThread(source: string, thread: Thread): SourceEdit {
 }
 
 /**
- * Insert a human reply adjacent to the last message of a thread. The reply
- * carries no `Claude:` prefix — the parser uses absence of the prefix as the
- * signal that this is from the user.
+ * Strip every structural / sigil character from a user-typed author name so it
+ * can never corrupt the metadata prefix or break rebase/parse. Removes control
+ * and line/paragraph-separator characters (so a name can't smuggle a newline or
+ * NUL into the rendered prefix), `;`, `=`, `{`, `}`, `<`, `>`, `+`, `~`, and any
+ * `--` run (a lone `-` survives, matching the prefix value class).
+ */
+export function sanitizeAuthorName(name: string): string {
+  return name
+    .replace(/[\x00-\x1f\x7f\u2028\u2029]/g, "")
+    .replace(/--+/g, "")
+    .replace(/[;={}<>+~]/g, "");
+}
+
+/**
+ * Insert a human reply adjacent to the last message of a thread, stamped with
+ * the new metadata prefix. The reply ALWAYS carries `date=<today>`; if
+ * `localAuthorName` is non-empty it also carries `author=<sanitized name>`
+ * (otherwise no `author=`, so the parser resolves it to "You"). `localAuthorName`
+ * is passed in from the panel/host — operations never reads settings directly.
  */
 export function appendReply(
   _source: string,
   thread: Thread,
   parsed: ParseResult,
   text: string,
+  localAuthorName = "",
 ): SourceEdit {
   const validationError = validateReplyText(text);
   if (validationError) throw new Error(validationError);
@@ -197,7 +214,13 @@ export function appendReply(
       ? thread.replyIndexes[thread.replyIndexes.length - 1]
       : thread.rootIndex;
   const last = parsed.nodes[lastIdx] as CommentNode;
-  const reply = `{>>${text}<<}`;
+
+  // Trustworthy real-clock date in ISO YYYY-MM-DD. Each pair ends with `;`
+  // (mandatory trailing terminator), so the prefix abuts the `>>` sigil cleanly.
+  const date = new Date().toISOString().slice(0, 10);
+  const author = sanitizeAuthorName((localAuthorName ?? "").trim());
+  const prefix = author ? `author=${author};date=${date};` : `date=${date};`;
+  const reply = `{${prefix}>>${text}<<}`;
   // Insert with no whitespace so the threading parser groups it.
   return {
     from: last.to,

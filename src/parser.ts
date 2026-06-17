@@ -21,8 +21,18 @@ export interface BaseNode {
   from: number;
   /** character offset just past the closing brace */
   to: number;
-  /** raw source text from `from` to `to` */
+  /** raw source text from `from` to `to`, INCLUDING any metadata prefix */
   raw: string;
+  /** Resolved `author=` value from the prefix (trimmed), or null if absent/empty. */
+  metaAuthor: string | null;
+  /** `date=` value from the prefix (trimmed), or null if absent/empty. Display-only. */
+  metaDate: string | null;
+  /** Exact prefix substring consumed (e.g. `author=Claude;date=2026-06-14`), "" if none. */
+  metaRaw: string;
+  /** Body start offset, after the prefix + sigil. */
+  innerFrom: number;
+  /** Body end offset, before the closing sigil. */
+  innerTo: number;
 }
 
 export interface CommentNode extends BaseNode {
@@ -77,11 +87,79 @@ export interface ParseResult {
   nodeThread: number[];
 }
 
-const COMMENT_RE = /\{>>([\s\S]*?)<<\}/g;
-const ADDITION_RE = /\{\+\+([\s\S]*?)\+\+\}/g;
-const DELETION_RE = /\{--([\s\S]*?)--\}/g;
-const SUBSTITUTION_RE = /\{~~([\s\S]*?)~>([\s\S]*?)~~\}/g;
-const HIGHLIGHT_RE = /\{==([\s\S]*?)==\}/g;
+// Optional metadata prefix between the outer `{` and the mark sigil: a run of
+// `key=value;` pairs — each pair, INCLUDING the last, terminated by `;`, with no
+// leading whitespace. The mandatory trailing `;` is load-bearing: it guarantees a
+// value can never sit directly against a sigil, so a truncated value (e.g. a
+// malformed date `date=2026--…`) can never hand its `--` to the deletion sigil and
+// straddle — such input simply fails to form a mark instead of corrupting on reject.
+//   KEY = [A-Za-z][\w.-]*     ASCII token (legacy AUTHOR_RE flavor)
+//   VAL = (?:[^;{}=<>+~*`\-]|-(?!-))*   allowed chars + a lone `-` (ISO dates).
+//   `*` and backtick are excluded too, so a value can't smuggle markdown that
+//   would split text nodes and leak the prefix in reading view.
+// PFX is a SINGLE capturing group so payload group indices are fixed: prefix m[1],
+// body/oldText m[2], newText m[3]. PFX matches "" for standard prefix-free marks,
+// so those parse byte-identically to the legacy regexes.
+const PFX = "((?:[A-Za-z][\\w.-]*=(?:[^;{}=<>+~*`\\-]|-(?!-))*;)*)";
+const COMMENT_RE = new RegExp(`\\{${PFX}>>([\\s\\S]*?)<<\\}`, "g");
+const ADDITION_RE = new RegExp(`\\{${PFX}\\+\\+([\\s\\S]*?)\\+\\+\\}`, "g");
+const DELETION_RE = new RegExp(`\\{${PFX}--([\\s\\S]*?)--\\}`, "g");
+const SUBSTITUTION_RE = new RegExp(`\\{${PFX}~~([\\s\\S]*?)~>([\\s\\S]*?)~~\\}`, "g");
+const HIGHLIGHT_RE = new RegExp(`\\{${PFX}==([\\s\\S]*?)==\\}`, "g");
+
+// Used by the post-match nesting guard: detects an inner `{` that opens a
+// parseable mark of any kind, so straddling matches (e.g. a `--`-in-date date
+// swallowing a downstream deletion) can be dropped rather than corrupt the doc.
+const INNER_MARK_RE = new RegExp(
+  `\\{${PFX}(?:>>[\\s\\S]*?<<|\\+\\+[\\s\\S]*?\\+\\+|--[\\s\\S]*?--|~~[\\s\\S]*?~~|==[\\s\\S]*?==)\\}`,
+);
+
+interface MetaPrefix {
+  author: string | null;
+  date: string | null;
+}
+
+// Pure: split PFX on `;`, split each pair on the FIRST `=`, lowercase key for
+// comparison, keep only author/date, trim values, empty value => null. Unknown
+// keys ignored. VAL forbids `=`, so the first-`=` split is lossless.
+function parseMetaPrefix(prefix: string): MetaPrefix {
+  const meta: MetaPrefix = { author: null, date: null };
+  if (!prefix) return meta;
+  for (const pair of prefix.split(";")) {
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    const key = pair.slice(0, eq).toLowerCase();
+    if (key !== "author" && key !== "date") continue;
+    const value = pair.slice(eq + 1).trim();
+    meta[key] = value === "" ? null : value;
+  }
+  return meta;
+}
+
+// Nesting guard support: does `raw` contain an inner `{` (past the outer one)
+// that begins a parseable mark? A plain `{foo}` in prose is fine; only an inner
+// brace that opens a real mark indicates a straddling match to drop.
+function hasNestedMark(raw: string): boolean {
+  for (let i = 1; i < raw.length; i++) {
+    if (raw.charCodeAt(i) !== 0x7b /* { */) continue;
+    INNER_MARK_RE.lastIndex = 0;
+    const m = INNER_MARK_RE.exec(raw.slice(i));
+    if (m && m.index === 0) return true;
+  }
+  return false;
+}
+
+// Insert into a list kept sorted ascending by `from` (re-admitting recovered marks).
+function insertSorted(list: CriticNode[], node: CriticNode): void {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].from < node.from) lo = mid + 1;
+    else hi = mid;
+  }
+  list.splice(lo, 0, node);
+}
 
 /**
  * Find ranges of source covered by Markdown code (fenced blocks, indented
@@ -185,64 +263,117 @@ export interface ParseOptions {
   skipCode?: boolean;
 }
 
-export function parse(source: string, options: ParseOptions = {}): ParseResult {
-  const skipCode = options.skipCode !== false;
-  const codeRegions = skipCode ? findCodeRegions(source) : [];
-  const nodes: CriticNode[] = [];
-
+// Run the five regexes over `text` and return candidate nodes with offsets
+// shifted by `base` (so a re-scan of a dropped straddle's interior maps back to
+// absolute document offsets). Group indices are fixed: prefix = m[1]; body /
+// oldText = m[2]; newText = m[3]. The prefix occupies `{` + metaRaw; the sigil
+// follows. innerFrom/innerTo bound the payload, excluding the prefix and sigils.
+function collectCandidates(text: string, base: number): CriticNode[] {
+  const out: CriticNode[] = [];
   // Substitutions first — their {~~...~~} could otherwise be confused with highlights.
-  for (const m of source.matchAll(SUBSTITUTION_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(SUBSTITUTION_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = base + m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>~~
+    out.push({
       kind: "substitution",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      oldText: m[1],
-      newText: m[2],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      oldText: m[2],
+      newText: m[3],
     });
   }
-  for (const m of source.matchAll(ADDITION_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(ADDITION_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = base + m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>++
+    out.push({
       kind: "addition",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      text: m[1],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
     });
   }
-  for (const m of source.matchAll(DELETION_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(DELETION_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = base + m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>--
+    out.push({
       kind: "deletion",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      text: m[1],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
     });
   }
-  for (const m of source.matchAll(HIGHLIGHT_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(HIGHLIGHT_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = base + m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>==
+    out.push({
       kind: "highlight",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      text: m[1],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
     });
   }
-  for (const m of source.matchAll(COMMENT_RE)) {
+  for (const m of text.matchAll(COMMENT_RE)) {
     const raw = m[0];
-    const body = m[1];
+    const meta = parseMetaPrefix(m[1]);
+    const body = m[2];
+    const from = base + m.index;
+    const bodyStart = from + 1 + m[1].length + 2; // {<prefix>>>
+    // Strip a legacy <Name>: from the body text regardless of metaAuthor; the
+    // prefix author wins for attribution, the legacy capture is kept on
+    // authorName for the legacy path and used as text cleanup here.
     const authorMatch = body.match(AUTHOR_RE);
     const authorName = authorMatch ? authorMatch[1] : null;
-    const text = authorMatch ? body.slice(authorMatch[0].length) : body;
-    nodes.push({
+    const cleanText = authorMatch ? body.slice(authorMatch[0].length) : body;
+    out.push({
       kind: "comment",
-      from: m.index,
-      to: m.index + raw.length,
+      from,
+      to: from + raw.length,
       raw,
-      text,
+      // Precedence: prefix author wins; else fall back to the legacy <Name>:.
+      metaAuthor: meta.author ?? authorName,
+      metaDate: meta.date,
+      metaRaw: m[1],
+      innerFrom: bodyStart,
+      innerTo: bodyStart + body.length,
+      text: cleanText,
       authorName,
     });
   }
+  return out;
+}
+
+export function parse(source: string, options: ParseOptions = {}): ParseResult {
+  const skipCode = options.skipCode !== false;
+  const codeRegions = skipCode ? findCodeRegions(source) : [];
+  const nodes: CriticNode[] = collectCandidates(source, 0);
 
   nodes.sort((a, b) => a.from - b.from);
 
@@ -251,11 +382,38 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   // contained by an already-accepted node. Also drop anything that falls
   // inside a code region — CriticMarkup-looking text in code samples is
   // literal, not real annotation.
+  //
+  // Use a sorted work queue (not a fixed list) so the nesting guard can re-scan
+  // a dropped straddle's interior and re-admit any legit inner marks it swallowed.
+  const pending = nodes; // already sorted by `from`
   const accepted: CriticNode[] = [];
   let lastEnd = -1;
-  for (const n of nodes) {
+  while (pending.length > 0) {
+    const n = pending.shift() as CriticNode;
     if (n.from < lastEnd) continue; // overlap with previous accepted node
     if (skipCode && rangeEndpointInCode(n.from, n.to, codeRegions)) continue;
+    // Nesting guard (§4.6): a mark whose raw contains an inner `{` that opens a
+    // parseable mark of any kind is a straddle (e.g. a `--`-in-a-malformed-date
+    // date swallowing a downstream real deletion). Drop the outer straddle, then
+    // re-scan its interior so a genuine inner mark survives.
+    //
+    // GATED on a non-empty prefix: the straddle only arises when a metadata value
+    // truncates and hands a sigil/brace to the match, which requires a prefix. A
+    // PREFIX-FREE mark that simply contains an inner mark — `{--remove {>>note<<}
+    // too--}` — is ordinary legacy CriticMarkup and MUST collapse to the outer
+    // mark (the inner is part of the deleted/added text), exactly as before this
+    // feature. Without this gate, such legacy marks would be silently re-parsed
+    // (regression + corruption of pre-existing docs). A legit single brace in
+    // prose — `{--remove the {foo} placeholder--}` — is untouched either way,
+    // because `{foo}` does not open a mark.
+    if (n.metaRaw !== "" && hasNestedMark(n.raw)) {
+      const recovered = collectCandidates(n.raw.slice(1), n.from + 1)
+        .filter((c) => c.from >= lastEnd && c.to <= n.to);
+      if (recovered.length > 0) {
+        for (const c of recovered) insertSorted(pending, c);
+      }
+      continue;
+    }
     accepted.push(n);
     lastEnd = n.to;
   }

@@ -82,6 +82,12 @@ export interface PanelHost {
    * setting so the panel reflects changes made while it is open.
    */
   highlightChangedChars(): boolean;
+  /**
+   * The local user's display name (the `localAuthorName` setting). Empty string
+   * is the sentinel for "You". Used both as the author display fallback and to
+   * stamp replies the panel writes. Read live so settings changes apply at once.
+   */
+  localAuthorName(): string;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -175,7 +181,7 @@ export class ReviewPanelView extends ItemView {
   }
 
   /** Rebuild the cards even if the source is unchanged — e.g. after a display
-   * setting toggled. */
+   * or author setting (highlightChangedChars / localAuthorName) toggled. */
   rebuildCards(): void {
     void this.refresh(undefined, true);
   }
@@ -314,17 +320,21 @@ export class ReviewPanelView extends ItemView {
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
     for (const idx of ids) {
       const c = parsed.nodes[idx] as CommentNode;
+      const resolved = this.resolveAuthor(c.metaAuthor, c.authorName);
       const msg = messages.createDiv({
-        cls: `tc-message tc-message-${c.authorName ? "named" : "you"}`,
+        cls: `tc-message tc-message-${resolved.named !== null ? "named" : "you"}`,
       });
-      if (c.authorName) {
-        msg.setAttr("data-author-hue", String(authorHueIndex(c.authorName)));
+      if (resolved.named !== null) {
+        msg.setAttr("data-author-hue", String(authorHueIndex(resolved.named)));
       }
       const meta = msg.createDiv({ cls: "tc-message-meta" });
       meta.createSpan({
         cls: "tc-message-author",
-        text: c.authorName ?? "You",
+        text: resolved.label,
       });
+      if (c.metaDate !== null) {
+        meta.createSpan({ cls: "tc-message-date", text: c.metaDate });
+      }
       const del = meta.createEl("button", { cls: "tc-icon-btn", attr: { "aria-label": "Delete message" } });
       setIcon(del, "trash-2");
       del.addEventListener("click", (e) => {
@@ -368,7 +378,13 @@ export class ReviewPanelView extends ItemView {
         return;
       }
       this.replyDrafts.delete(thread.from);
-      const edit = appendReply(this.currentSource, thread, parsed, text);
+      const edit = appendReply(
+        this.currentSource,
+        thread,
+        parsed,
+        text,
+        this.host.localAuthorName(),
+      );
       await this.host.applyEdits(file, [edit]);
     };
     const actions = reply.createDiv({ cls: "tc-reply-actions" });
@@ -405,6 +421,7 @@ export class ReviewPanelView extends ItemView {
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
     this.renderLineRef(card, source, n.from);
+    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Insert" });
     const added = diff.createDiv({ cls: "tc-diff-added" });
@@ -431,6 +448,7 @@ export class ReviewPanelView extends ItemView {
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
     this.renderLineRef(card, source, n.from);
+    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Delete" });
     const removed = diff.createDiv({ cls: "tc-diff-removed" });
@@ -457,6 +475,7 @@ export class ReviewPanelView extends ItemView {
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
     this.renderLineRef(card, source, n.from);
+    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Replace" });
     const removed = diff.createDiv({ cls: "tc-diff-removed" });
@@ -522,6 +541,7 @@ export class ReviewPanelView extends ItemView {
     preview.setText(previewText || "(empty)");
 
     const body = card.createDiv({ cls: "tc-card-body" });
+    this.renderMetaRow(body, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
     const diff = body.createDiv({ cls: "tc-diff" });
     const diffBody = diff.createDiv({ cls: "tc-diff-highlight" });
     this.renderTextInto(diffBody, n.text);
@@ -616,6 +636,44 @@ export class ReviewPanelView extends ItemView {
     card.toggleClass("tc-card-collapsed", willCollapse);
     const toggle = card.querySelector<HTMLElement>(".tc-card-toggle");
     if (toggle) setIcon(toggle, willCollapse ? "chevron-right" : "chevron-down");
+  }
+
+  /**
+   * Resolve the display author for a node per the precedence chain
+   * (§5.2): metaAuthor → legacy authorName (comments only) → localAuthorName
+   * setting → "You". Returns the resolved label plus the underlying named
+   * author (null when it falls through to the "You" sentinel) so callers can
+   * decide whether to apply a hue.
+   */
+  private resolveAuthor(
+    metaAuthor: string | null,
+    legacyAuthorName: string | null,
+  ): { label: string; named: string | null } {
+    const local = this.host.localAuthorName().trim();
+    const named = metaAuthor ?? legacyAuthorName ?? (local !== "" ? local : null);
+    return { label: named ?? "You", named };
+  }
+
+  /**
+   * Render an author/date meta row onto a card or message. `named` drives the
+   * hue; when both the resolved name and date are absent the row is omitted.
+   * `target` receives `data-author-hue` for the color border/tint.
+   */
+  private renderMetaRow(
+    parent: HTMLElement,
+    target: HTMLElement,
+    metaAuthor: string | null,
+    legacyAuthorName: string | null,
+    metaDate: string | null,
+    cls: string,
+  ): void {
+    const { label, named } = this.resolveAuthor(metaAuthor, legacyAuthorName);
+    if (named !== null) target.setAttr("data-author-hue", String(authorHueIndex(named)));
+    // Hide the row entirely only when there is neither a real author nor a date.
+    if (named === null && metaDate === null) return;
+    const row = parent.createDiv({ cls });
+    row.createSpan({ cls: "tc-meta-author", text: label });
+    if (metaDate !== null) row.createSpan({ cls: "tc-meta-date", text: metaDate });
   }
 
   private renderTextInto(el: HTMLElement, text: string): void {

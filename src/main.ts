@@ -108,6 +108,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       shouldOpenPanel: (event) =>
         this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      localAuthorName: () => this.settings.localAuthorName ?? "",
     });
   }
 
@@ -117,6 +118,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.editorExtensions.length = 0;
     this.editorExtensions.push(this.makeDecorationExtension());
     this.app.workspace.updateOptions();
+    this.getReviewView()?.rebuildCards();
+  }
+
+  /**
+   * Refresh every render surface after a settings change that affects display
+   * (e.g. localAuthorName). Re-runs reading-view post-processors and forces the
+   * open review panel to repaint so the "You"-fallback author/hue updates live.
+   */
+  refreshAfterSettingsChange(): void {
+    this.rerenderReadingViews();
     this.getReviewView()?.rebuildCards();
   }
 
@@ -143,6 +154,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       isFileOpen: (file) => this.findEditorForFile(file) !== null,
       confirmBeforeDelete: () => this.settings.confirmBeforeDelete,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      localAuthorName: () => this.settings.localAuthorName ?? "",
     };
     return new ReviewPanelView(leaf, host);
   }

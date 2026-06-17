@@ -29,6 +29,14 @@ export interface TrackChangesCriticMarkupSettings {
    * emphasis.
    */
   highlightChangedChars: boolean;
+  /**
+   * The local user's display name for authored marks. Two roles, both optional:
+   *   1. Display fallback — a mark with no `author=` and no legacy `<Name>:`
+   *      renders as this name. Empty string is the sentinel for "You".
+   *   2. Reply stamping — when non-empty, replies the plugin writes carry
+   *      `author=<name>`; empty ⇒ replies carry only `date=` and render as "You".
+   */
+  localAuthorName: string;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -39,6 +47,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   clickMarksToOpenPanel: false,
   confirmBeforeDelete: true,
   highlightChangedChars: true,
+  localAuthorName: "",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -114,6 +123,22 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
           this.plugin.settings.confirmBeforeDelete = v;
           await this.plugin.saveSettings();
         }),
+      );
+
+    new Setting(containerEl)
+      .setName("Your name")
+      .setDesc(
+        "Display name stamped on replies you write and used as the author fallback for unattributed marks. Leave blank to appear as \"You\".",
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder("You")
+          .setValue(this.plugin.settings.localAuthorName)
+          .onChange(async (v) => {
+            this.plugin.settings.localAuthorName = v.trim();
+            await this.plugin.saveSettings();
+            this.plugin.refreshAfterSettingsChange();
+          }),
       );
 
     new Setting(containerEl).setName("Finalize for publish — defaults").setHeading();

@@ -8,36 +8,63 @@
 
 /* ---------- Author hue palette ----------
  *
- * Per-author tinting for chips and panel messages. The hue is set by JS
- * on the wrapping element via data-author-hue="0..7" (see src/authors.ts).
- * Saturation/lightness are fixed so the result is legible across themes.
- */
+ * Per-author tinting. The hue index is set by JS via data-author-hue="0..7"
+ * (see src/authors.ts) on chips, panel messages/cards, reading-mode comment
+ * icons, AND every inline mark (addition/deletion/substitution/highlight) in
+ * both live-preview and source mode. Saturation/lightness are fixed so the
+ * result is legible across themes.
+ *
+ * Two signals are layered without colliding:
+ *   - the OPERATION (add/del/highlight) is communicated by the green/red/yellow
+ *     background — those stay exactly as before;
+ *   - the AUTHOR is communicated by a hue-colored border (left border on block
+ *     elements, bottom-border "underline" on inline marks), so the background
+ *     stays free for the operation color.
+ *
+ * One rule per index sets `--tc-hue`; the selectors below consume it. */
+[data-author-hue="0"] { --tc-hue: 210; } /* blue */
+[data-author-hue="1"] { --tc-hue: 280; } /* purple */
+[data-author-hue="2"] { --tc-hue: 150; } /* green */
+[data-author-hue="3"] { --tc-hue: 30; }  /* orange */
+[data-author-hue="4"] { --tc-hue: 340; } /* pink */
+[data-author-hue="5"] { --tc-hue: 190; } /* teal */
+[data-author-hue="6"] { --tc-hue: 50; }  /* yellow */
+[data-author-hue="7"] { --tc-hue: 0; }   /* red — Claude */
 
-.tc-chip[data-author-hue],
-.tc-message[data-author-hue],
-.tc-rm-comment[data-author-hue] {
-  --tc-hue: 210;
+/* Chip: hue drives its border + faint background fill. */
+.tc-chip[data-author-hue] {
   border-color: hsla(var(--tc-hue), 70%, 55%, 0.4);
   background: hsla(var(--tc-hue), 70%, 55%, 0.08);
 }
-.tc-message[data-author-hue] {
-  border-left: 3px solid hsla(var(--tc-hue), 70%, 55%, 0.5);
-  background: hsla(var(--tc-hue), 70%, 55%, 0.08);
+
+/* Panel message / suggestion card / diff block: hue as a left border. The
+ * operation/semantic background is set per-class and is left untouched. */
+.tc-message[data-author-hue],
+.tc-card[data-author-hue],
+.tc-diff[data-author-hue] {
+  border-left: 3px solid hsla(var(--tc-hue), 70%, 55%, 0.6);
 }
+
+/* Reading-mode comment icon: hue tints the glyph itself. */
 .tc-rm-comment[data-author-hue] {
   color: hsla(var(--tc-hue), 70%, 50%, 0.9);
   background: transparent;
   border: none;
 }
 
-.tc-chip[data-author-hue="0"], .tc-message[data-author-hue="0"], .tc-rm-comment[data-author-hue="0"] { --tc-hue: 210; } /* blue */
-.tc-chip[data-author-hue="1"], .tc-message[data-author-hue="1"], .tc-rm-comment[data-author-hue="1"] { --tc-hue: 280; } /* purple */
-.tc-chip[data-author-hue="2"], .tc-message[data-author-hue="2"], .tc-rm-comment[data-author-hue="2"] { --tc-hue: 150; } /* green */
-.tc-chip[data-author-hue="3"], .tc-message[data-author-hue="3"], .tc-rm-comment[data-author-hue="3"] { --tc-hue: 30; }  /* orange */
-.tc-chip[data-author-hue="4"], .tc-message[data-author-hue="4"], .tc-rm-comment[data-author-hue="4"] { --tc-hue: 340; } /* pink */
-.tc-chip[data-author-hue="5"], .tc-message[data-author-hue="5"], .tc-rm-comment[data-author-hue="5"] { --tc-hue: 190; } /* teal */
-.tc-chip[data-author-hue="6"], .tc-message[data-author-hue="6"], .tc-rm-comment[data-author-hue="6"] { --tc-hue: 50; }  /* yellow */
-.tc-chip[data-author-hue="7"], .tc-message[data-author-hue="7"], .tc-rm-comment[data-author-hue="7"] { --tc-hue: 0; }   /* red — Claude */
+/* Inline marks (live-preview + source mode): hue as a bottom-border
+ * "underline". `border-bottom` doesn't conflict with line-through, and leaves
+ * the operation background (green/red/yellow) doing its own job. */
+.tc-addition[data-author-hue],
+.tc-deletion[data-author-hue],
+.tc-highlight[data-author-hue],
+.tc-sub-old[data-author-hue],
+.tc-sub-new[data-author-hue],
+.tc-sub-raw-old[data-author-hue],
+.tc-sub-raw-new[data-author-hue],
+.tc-raw-comment[data-author-hue] {
+  border-bottom: 2px solid hsla(var(--tc-hue), 70%, 50%, 0.55);
+}
 
 /* ---------- Inline (editor / live preview) ---------- */
 
@@ -109,6 +136,9 @@
 .tc-deletion {
   background: rgba(220, 38, 38, 0.08);
   text-decoration: line-through;
+}
+.tc-highlight {
+  background: rgba(252, 211, 77, 0.30);
 }
 .tc-sub-old {
   text-decoration: line-through;
@@ -213,6 +243,22 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* Author/date meta row on suggestion + highlight cards. Hidden by the panel
+ * (the row isn't emitted) when there is neither a resolved author nor a date. */
+.tc-card-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78em;
+  color: var(--text-muted);
+}
+.tc-meta-author {
+  font-weight: 600;
+}
+.tc-meta-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
 .tc-thread-header {
   display: flex;
   align-items: center;
@@ -312,6 +358,11 @@
 }
 .tc-message-author {
   font-weight: 600;
+}
+.tc-message-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  margin-left: 8px;
 }
 .tc-message-body {
   font-size: 0.92em;

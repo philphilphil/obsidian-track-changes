@@ -36,6 +36,38 @@ import { AUTHOR_RE } from "./authors";
 
 export interface ReadingOptions {
   showComments: boolean;
+  /**
+   * The local user's display name (settings `localAuthorName`). Author
+   * fallback when a mark carries no `author=` prefix and (for comments) no
+   * legacy `<Name>:`. Empty / unset falls through to the "You" sentinel.
+   */
+  localAuthorName?: string;
+}
+
+// Source-level metadata prefix between the outer `{` and the mark sigil — must
+// match the parser's grammar (src/parser.ts PFX). A run of `key=value;` pairs,
+// each (including the last) terminated by `;`; VAL forbids `;={}<>+~*` and backtick
+// and a `--` run (lone `-` allowed for ISO dates). Used to recognise — and strip —
+// the prefix in the rendered DOM, where it survives as literal text (it's not
+// markdown); excluding `*`/backtick keeps a value from splitting into text nodes.
+const PFX_SRC = "(?:[A-Za-z][\\w.-]*=(?:[^;{}=<>+~*`\\-]|-(?!-))*;)*";
+// `{` + optional prefix + a 2-char open sigil, anchored at the search start.
+const OPEN_WITH_PREFIX = new RegExp(`^\\{${PFX_SRC}(?:\\+\\+|--|>>|~~|==)`);
+// `{` + optional prefix anchored to end-of-text (for cleanBraceWrapped, where
+// the wrapper element ate the `==`/`~~` sigil and only `{<prefix>` is in text).
+const OPEN_PREFIX_AT_END = new RegExp(`\\{${PFX_SRC}$`);
+// `{` + optional prefix + nothing-but-whitespace tail (locateBracedWrapper:
+// the sigil was eaten into the following <mark>/<del>/<s> element).
+const OPEN_PREFIX_THEN_WS = new RegExp(`^\\{${PFX_SRC}\\s*$`);
+
+/**
+ * Resolve the display author for a node per the precedence chain (§5.2):
+ * metaAuthor → legacy authorName (comments only) → localAuthorName → "You".
+ */
+function resolveAuthorLabel(node: CriticNode, localAuthorName: string): string {
+  const legacy = node.kind === "comment" ? node.authorName : null;
+  const local = localAuthorName.trim();
+  return node.metaAuthor ?? legacy ?? (local !== "" ? local : "You");
 }
 
 export function makeReadingPostProcessor(getOpts: () => ReadingOptions) {
@@ -160,7 +192,9 @@ function locateAll(
       // it if its source offset falls inside this section; otherwise the
       // arrow lives in another section and would be searched there.
       const sub = op.node;
-      const arrowSrcStart = sub.from + 3 + sub.oldText.length;
+      // innerTo is the end of `old`; the `~>` separator begins there
+      // (prefix-aware: innerFrom already accounts for `{<prefix>~~`).
+      const arrowSrcStart = sub.innerTo;
       if (arrowSrcStart >= secFrom && arrowSrcStart < secTo) {
         const arrow = locateLiteral(el, cursor, "~>");
         if (arrow) {
@@ -195,14 +229,48 @@ function locateOpen(
   cursor: TextPos,
 ): { range: DomRange; wrapEl?: Element } | null {
   if (node.kind === "highlight") {
-    return locateBracedWrapper(el, cursor, "{==", ["MARK"]);
+    return locateBracedWrapper(el, cursor, ["MARK"]);
   }
   if (node.kind === "substitution") {
-    return locateBracedWrapper(el, cursor, "{~~", ["DEL", "S"]);
+    return locateBracedWrapper(el, cursor, ["DEL", "S"]);
   }
-  const tok = openLiteral(node.kind);
-  const r = locateLiteral(el, cursor, tok);
+  // addition / deletion / comment: the open token is `{<prefix><sigil>` where
+  // the (optional) metadata prefix survives in the DOM as literal text. Match
+  // and delete it whole so `author=`/`date=` is never echoed as prose.
+  const r = locateOpenSigil(el, cursor);
   return r ? { range: r.range } : null;
+}
+
+/**
+ * Locate a `{` + optional metadata prefix + 2-char open sigil run, anywhere
+ * within a single text node, starting at `cursor`. Returns the range covering
+ * the full `{<prefix><sigil>` so the caller deletes the prefix with the token.
+ */
+function locateOpenSigil(
+  el: HTMLElement,
+  cursor: TextPos,
+): { range: DomRange } | null {
+  let node: Text | null = cursor.node;
+  let offset = cursor.offset;
+  while (node) {
+    const text = node.nodeValue ?? "";
+    let idx = text.indexOf("{", offset);
+    while (idx >= 0) {
+      const m = OPEN_WITH_PREFIX.exec(text.slice(idx));
+      if (m) {
+        return {
+          range: {
+            start: { node, offset: idx },
+            end: { node, offset: idx + m[0].length },
+          },
+        };
+      }
+      idx = text.indexOf("{", idx + 1);
+    }
+    node = nextWalkableText(el, node);
+    offset = 0;
+  }
+  return null;
 }
 
 function locateClose(
@@ -274,26 +342,33 @@ function locateLiteral(
 function locateBracedWrapper(
   el: HTMLElement,
   cursor: TextPos,
-  literalToken: string,
   tags: string[],
 ): { range: DomRange; wrapEl?: Element } | null {
-  const lit = locateLiteral(el, cursor, literalToken);
+  // Obsidian didn't eat the sigil (e.g. leading/trailing space disqualified
+  // `==`/`~~`): the whole `{<prefix><sigil>` is literal text in one node.
+  const lit = locateOpenSigil(el, cursor);
   if (lit) return { range: lit.range };
 
+  // Sigil eaten into the following <mark>/<del>/<s>; only `{<prefix>` remains
+  // as literal text. Match `{` + optional prefix at the (whitespace) tail and
+  // delete the whole `{<prefix>` so the prefix is never echoed.
   let node: Text | null = cursor.node;
   let offset = cursor.offset;
   while (node) {
     const text = node.nodeValue ?? "";
     let idx = text.indexOf("{", offset);
     while (idx >= 0) {
-      const tail = text.substring(idx + 1);
-      if (/^\s*$/.test(tail)) {
+      const m = OPEN_PREFIX_THEN_WS.exec(text.slice(idx));
+      if (m) {
+        // m[0] = `{<prefix>` + trailing whitespace; strip the trailing ws from
+        // the deleted range so we don't swallow a legit space before <mark>.
+        const consumed = m[0].replace(/\s+$/, "").length;
         const wrap = nextMatchingElement(node, el, tags);
         if (wrap) {
           return {
             range: {
               start: { node, offset: idx },
-              end: { node, offset: idx + 1 },
+              end: { node, offset: idx + consumed },
             },
             wrapEl: wrap,
           };
@@ -407,7 +482,7 @@ function applyLocated(
       const wantIcon = opts.showComments && iconTargets.has(idx);
       const insertion = removeSpan(doc, el, openRange ?? null, closeRange ?? null);
       if (wantIcon && insertion) {
-        const icon = makeCommentIcon(doc, parsed, idx);
+        const icon = makeCommentIcon(doc, parsed, idx, opts.localAuthorName ?? "");
         if (icon) insertion.insertNode(icon);
       }
       return;
@@ -475,6 +550,7 @@ function makeCommentIcon(
   doc: Document,
   parsed: ParseResult,
   rootCommentIdx: number,
+  localAuthorName: string,
 ): HTMLElement | null {
   const root = parsed.nodes[rootCommentIdx] as CommentNode | undefined;
   if (!root || root.kind !== "comment") return null;
@@ -485,7 +561,7 @@ function makeCommentIcon(
   span.className = "tc-rm-comment";
   setIcon(span, "message-square-text");
 
-  const tooltip = renderThreadTooltip(parsed, thread, root);
+  const tooltip = renderThreadTooltip(parsed, thread, root, localAuthorName);
   setTooltip(span, tooltip, { placement: "top" });
   span.setAttribute("aria-label", tooltip);
   return span;
@@ -495,20 +571,23 @@ function renderThreadTooltip(
   parsed: ParseResult,
   thread: { rootIndex: number; replyIndexes: number[] } | null,
   fallback: CommentNode,
+  localAuthorName: string,
 ): string {
-  if (!thread) return formatComment(fallback);
+  if (!thread) return formatComment(fallback, localAuthorName);
   const out: string[] = [];
-  out.push(formatComment(parsed.nodes[thread.rootIndex] as CommentNode));
+  out.push(formatComment(parsed.nodes[thread.rootIndex] as CommentNode, localAuthorName));
   for (const idx of thread.replyIndexes) {
-    out.push(formatComment(parsed.nodes[idx] as CommentNode));
+    out.push(formatComment(parsed.nodes[idx] as CommentNode, localAuthorName));
   }
   return out.join("\n\n");
 }
 
-function formatComment(c: CommentNode): string {
-  const author = c.authorName ?? "You";
+function formatComment(c: CommentNode, localAuthorName: string): string {
+  // Resolved author per §5.2 precedence, plus the display-only date if present.
+  const author = resolveAuthorLabel(c, localAuthorName);
+  const stamp = c.metaDate ? `${author} · ${c.metaDate}` : author;
   const body = c.text.trim();
-  return `${author}: ${body}`;
+  return `${stamp}: ${body}`;
 }
 
 // ---------- TreeWalker helpers ----------
@@ -566,8 +645,18 @@ function nextWalkableText(root: HTMLElement, after: Text): Text | null {
 
 // ---------- Safety-net DOM cleanup ----------
 
-const LITERAL_MARKUP_RE =
-  /\{>>([\s\S]*?)<<\}|\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{~~([\s\S]*?)~>([\s\S]*?)~~\}|\{==([\s\S]*?)==\}/g;
+// Each alternative allows an OPTIONAL non-capturing metadata prefix between the
+// `{` and the sigil (so capture-group indices stay fixed: m[1] comment body,
+// m[2] addition, m[3] deletion, m[4] subOld, m[5] subNew, m[6] highlight). The
+// prefix is matched-and-discarded — never echoed.
+const LITERAL_MARKUP_RE = new RegExp(
+  `\\{${PFX_SRC}>>([\\s\\S]*?)<<\\}` +
+    `|\\{${PFX_SRC}\\+\\+([\\s\\S]*?)\\+\\+\\}` +
+    `|\\{${PFX_SRC}--([\\s\\S]*?)--\\}` +
+    `|\\{${PFX_SRC}~~([\\s\\S]*?)~>([\\s\\S]*?)~~\\}` +
+    `|\\{${PFX_SRC}==([\\s\\S]*?)==\\}`,
+  "g",
+);
 
 /**
  * Best-effort DOM-only cleanup that doesn't need source-of-truth from
@@ -599,9 +688,13 @@ function cleanBraceWrapped(el: HTMLElement, tag: string, unwrapAfter: boolean): 
     if (!next || next.nodeType !== 3) continue;
     const prevText = (prev as Text).nodeValue ?? "";
     const nextText = (next as Text).nodeValue ?? "";
-    if (!prevText.endsWith("{")) continue;
+    // The `{` may carry a metadata prefix that survived as literal text
+    // (`…{author=Claude` before a <mark>). Match `{<prefix>` at end-of-text and
+    // strip the whole thing so `author=`/`date=` is never echoed.
+    const open = OPEN_PREFIX_AT_END.exec(prevText);
+    if (!open) continue;
     if (!nextText.startsWith("}")) continue;
-    (prev as Text).nodeValue = prevText.slice(0, -1);
+    (prev as Text).nodeValue = prevText.slice(0, open.index);
     (next as Text).nodeValue = nextText.slice(1);
     if (unwrapAfter) {
       // Substitution: drop the leading "old~>" inside the wrapper, then
@@ -673,7 +766,7 @@ function renderLiteralMatch(
   const highlight = m[6];
   if (comment !== undefined) {
     if (!opts.showComments) return null;
-    return makeFallbackIcon(doc, comment);
+    return makeFallbackIcon(doc, comment, opts.localAuthorName ?? "");
   }
   if (addition !== undefined) return doc.createTextNode(addition);
   if (deletion !== undefined) return null;
@@ -686,17 +779,21 @@ function renderLiteralMatch(
   return null;
 }
 
-function makeFallbackIcon(doc: Document, body: string): HTMLElement {
-  // No parser context here — emit a single icon per comment with the body
-  // as its tooltip. Thread grouping needs the parser; the source-aware
-  // path handles that. This is the degraded mode.
+function makeFallbackIcon(doc: Document, body: string, localAuthorName: string): HTMLElement {
+  // No parser context here — emit a single icon per comment with the body as
+  // its tooltip. Thread grouping and the metadata prefix need the parser; the
+  // source-aware path handles those. This is the degraded mode: the prefix was
+  // already discarded by LITERAL_MARKUP_RE, so only the legacy `<Name>:` is
+  // available; no date. Author falls back legacy → localAuthorName → "You".
   const am = body.match(AUTHOR_RE);
   const authorName = am ? am[1] : null;
   const text = am ? body.slice(am[0].length).trim() : body.trim();
+  const local = localAuthorName.trim();
+  const author = authorName ?? (local !== "" ? local : "You");
   const span = doc.createElement("span");
   span.className = "tc-rm-comment";
   setIcon(span, "message-square-text");
-  const tip = `${authorName ?? "You"}: ${text}`;
+  const tip = `${author}: ${text}`;
   setTooltip(span, tip, { placement: "top" });
   span.setAttribute("aria-label", tip);
   return span;

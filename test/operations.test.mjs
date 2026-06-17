@@ -114,25 +114,31 @@ test("deleteThread removes all messages", () => {
   assert.equal(out, "x  y");
 });
 
-test("appendReply inserts adjacent without prefix", () => {
+test("appendReply inserts adjacent with a date= prefix", () => {
+  // Spec §7.4: replies the plugin writes ALWAYS stamp date=<today>; with an
+  // empty localAuthorName there is no author= (resolves to "You").
+  const today = new Date().toISOString().slice(0, 10);
   const src = "x {>>Claude: a<<} y";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "thanks");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, "x {>>Claude: a<<}{>>thanks<<} y");
+  assert.equal(out, `x {>>Claude: a<<}{date=${today};>>thanks<<} y`);
   // and the new structure parses as a single thread with one reply
   const r2 = parse(out);
   assert.equal(r2.threads.length, 1);
   assert.equal(r2.threads[0].replyIndexes.length, 1);
   assert.equal(r2.nodes[1].authorName, null);
+  assert.equal(r2.nodes[1].metaAuthor, null);
+  assert.equal(r2.nodes[1].metaDate, today);
 });
 
 test("appendReply attaches after the last message of an existing thread", () => {
+  const today = new Date().toISOString().slice(0, 10);
   const src = "x {>>Claude: a<<}{>>ignore<<} y";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "actually no");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, "x {>>Claude: a<<}{>>ignore<<}{>>actually no<<} y");
+  assert.equal(out, `x {>>Claude: a<<}{>>ignore<<}{date=${today};>>actually no<<} y`);
 });
 
 test("appendReply rejects comment closing delimiters in reply text", () => {
