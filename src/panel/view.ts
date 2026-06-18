@@ -31,6 +31,7 @@ import {
   type ParseResult,
 } from "../parser";
 import { authorHueIndex } from "../authors";
+import { diffChars, type DiffRun } from "../diff";
 import {
   acceptAddition,
   acceptDeletion,
@@ -76,6 +77,11 @@ export interface PanelHost {
    * the panel is open.
    */
   confirmBeforeDelete(): boolean;
+  /**
+   * Whether substitution cards highlight the changed characters. Reads the live
+   * setting so the panel reflects changes made while it is open.
+   */
+  highlightChangedChars(): boolean;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -168,7 +174,13 @@ export class ReviewPanelView extends ItemView {
     void this.refresh(source);
   }
 
-  private async refresh(preloadedSource?: string): Promise<void> {
+  /** Rebuild the cards even if the source is unchanged — e.g. after a display
+   * setting toggled. */
+  rebuildCards(): void {
+    void this.refresh(undefined, true);
+  }
+
+  private async refresh(preloadedSource?: string, force = false): Promise<void> {
     const seq = ++this.refreshSeq;
     const file = this.currentFile;
 
@@ -206,7 +218,7 @@ export class ReviewPanelView extends ItemView {
 
     // Skip the rebuild if nothing changed — e.g. the delayed vault `modify`
     // event after we already refreshed via refreshFromSource.
-    if (source === this.currentSource && this.contentEl.querySelector(".tc-card-list, .tc-empty")) {
+    if (!force && source === this.currentSource && this.contentEl.querySelector(".tc-card-list, .tc-empty")) {
       return;
     }
 
@@ -448,11 +460,17 @@ export class ReviewPanelView extends ItemView {
     const diff = card.createDiv({ cls: "tc-diff" });
     diff.createSpan({ cls: "tc-diff-label", text: "Replace" });
     const removed = diff.createDiv({ cls: "tc-diff-removed" });
-    this.renderTextInto(removed, n.oldText);
     const arrow = diff.createDiv({ cls: "tc-diff-arrow" });
     arrow.setText("→");
     const added = diff.createDiv({ cls: "tc-diff-added" });
-    this.renderTextInto(added, n.newText);
+    if (this.host.highlightChangedChars()) {
+      const { oldRuns, newRuns } = diffChars(n.oldText, n.newText);
+      this.renderDiffRuns(removed, oldRuns);
+      this.renderDiffRuns(added, newRuns);
+    } else {
+      this.renderTextInto(removed, n.oldText);
+      this.renderTextInto(added, n.newText);
+    }
     this.renderAcceptReject(
       card,
       file,
@@ -602,6 +620,13 @@ export class ReviewPanelView extends ItemView {
 
   private renderTextInto(el: HTMLElement, text: string): void {
     el.setText(text);
+  }
+
+  private renderDiffRuns(el: HTMLElement, runs: DiffRun[]): void {
+    for (const run of runs) {
+      if (run.changed) el.createSpan({ cls: "tc-diff-changed", text: run.text });
+      else el.appendText(run.text);
+    }
   }
 
   private confirmDestructiveAction(

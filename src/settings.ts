@@ -22,6 +22,13 @@ export interface TrackChangesCriticMarkupSettings {
    * find the dialog gets in the way.
    */
   confirmBeforeDelete: boolean;
+  /**
+   * Within a substitution's old→new text, emphasize the specific characters
+   * that changed (in the panel's Replace card and inline in Live Preview). On
+   * by default; when off, the old and new text show without per-character
+   * emphasis.
+   */
+  highlightChangedChars: boolean;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -31,6 +38,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   revealMarkupOnCommentJump: false,
   clickMarksToOpenPanel: false,
   confirmBeforeDelete: true,
+  highlightChangedChars: true,
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -80,6 +88,19 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.clickMarksToOpenPanel).onChange(async (v) => {
           this.plugin.settings.clickMarksToOpenPanel = v;
           await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Highlight changed characters")
+      .setDesc(
+        "In a substitution, emphasize the specific characters that changed within the old and new text. Applies to the panel and Live Preview.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.highlightChangedChars).onChange(async (v) => {
+          this.plugin.settings.highlightChangedChars = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshCharHighlighting();
         }),
       );
 
