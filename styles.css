@@ -151,6 +151,14 @@
 .tc-sub-raw-new {
   display: inline-block;
 }
+.tc-sub-old-changed {
+  display: inline;
+  background: rgba(220, 38, 38, 0.28);
+}
+.tc-sub-new-changed {
+  display: inline;
+  background: rgba(56, 161, 105, 0.30);
+}
 
 /* ---------- Right panel ---------- */
 
@@ -416,6 +424,7 @@
   border-radius: 4px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  color: var(--text-muted);
 }
 .tc-diff-removed {
   background: rgba(220, 38, 38, 0.08);
@@ -424,6 +433,17 @@
   border-radius: 4px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+.tc-diff-changed {
+  color: var(--text-normal);
+  border-radius: 2px;
+}
+.tc-diff-removed .tc-diff-changed {
+  background: rgba(220, 38, 38, 0.30);
+}
+.tc-diff-added .tc-diff-changed {
+  background: rgba(56, 161, 105, 0.32);
 }
 .tc-diff-arrow {
   color: var(--text-muted);

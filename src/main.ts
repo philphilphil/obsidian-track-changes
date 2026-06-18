@@ -7,6 +7,7 @@ import {
   Editor,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
+import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
@@ -22,6 +23,11 @@ import {
 export default class TrackChangesCriticMarkupPlugin extends Plugin {
   settings!: TrackChangesCriticMarkupSettings;
 
+  // Mutable so a settings toggle can swap the decoration extension and force a
+  // rebuild via workspace.updateOptions() (the field is otherwise only rebuilt
+  // on doc changes).
+  private editorExtensions: Extension[] = [];
+
   async onload(): Promise<void> {
     await this.loadSettings();
 
@@ -29,13 +35,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.registerView(REVIEW_VIEW_TYPE, (leaf) => this.makeReviewView(leaf));
 
     // CodeMirror 6 inline decorations.
-    this.registerEditorExtension(
-      criticDecorationsExtension({
-        onOpenPanel: (offset) => this.handleInlineClick(offset),
-        shouldOpenPanel: (event) =>
-          this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
-      }),
-    );
+    this.editorExtensions.push(this.makeDecorationExtension());
+    this.registerEditorExtension(this.editorExtensions);
 
     // Reading-mode post-processor.
     this.registerMarkdownPostProcessor(
@@ -101,6 +102,24 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     });
   }
 
+  private makeDecorationExtension(): Extension {
+    return criticDecorationsExtension({
+      onOpenPanel: (offset) => this.handleInlineClick(offset),
+      shouldOpenPanel: (event) =>
+        this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
+      highlightChangedChars: () => this.settings.highlightChangedChars,
+    });
+  }
+
+  /** Repaint the per-character substitution highlight in open editors and the
+   * panel after the `highlightChangedChars` setting toggled. */
+  refreshCharHighlighting(): void {
+    this.editorExtensions.length = 0;
+    this.editorExtensions.push(this.makeDecorationExtension());
+    this.app.workspace.updateOptions();
+    this.getReviewView()?.rebuildCards();
+  }
+
   // ---- host implementation for the panel ----
 
   private makeReviewView(leaf: WorkspaceLeaf): ReviewPanelView {
@@ -123,6 +142,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         this.revealOffsetInEditor(file, offset, length, flashChip ?? false),
       isFileOpen: (file) => this.findEditorForFile(file) !== null,
       confirmBeforeDelete: () => this.settings.confirmBeforeDelete,
+      highlightChangedChars: () => this.settings.highlightChangedChars,
     };
     return new ReviewPanelView(leaf, host);
   }

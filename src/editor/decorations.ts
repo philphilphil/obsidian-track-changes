@@ -9,10 +9,13 @@ import { editorLivePreviewField } from "obsidian";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
 import { authorHueIndex } from "../authors";
+import { diffChars } from "../diff";
 
 export interface DecorationCallbacks {
   onOpenPanel: (sourceOffset: number) => void;
   shouldOpenPanel: (event: MouseEvent) => boolean;
+  /** Whether to highlight the changed characters inside a substitution. */
+  highlightChangedChars: () => boolean;
 }
 
 class ThreadChipWidget extends WidgetType {
@@ -238,6 +241,9 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
       const newTo = n.to - 3;
       const inRange = rangeTouchesSelection(state, n.from, n.to);
       if (!inRange) {
+        const charRuns = callbacks.highlightChangedChars()
+          ? diffChars(n.oldText, n.newText)
+          : null;
         builder.add(n.from, oldFrom, hiddenDecoration());
         builder.add(
           oldFrom,
@@ -247,6 +253,22 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
             attributes: { "data-tc-offset": String(n.from) },
           }),
         );
+        if (charRuns) {
+          let oldRunOffset = 0;
+          for (const run of charRuns.oldRuns) {
+            if (run.changed) {
+              builder.add(
+                oldFrom + oldRunOffset,
+                oldFrom + oldRunOffset + run.text.length,
+                Decoration.mark({
+                  class: "tc-sub-old-changed",
+                  attributes: { "data-tc-offset": String(n.from) },
+                }),
+              );
+            }
+            oldRunOffset += run.text.length;
+          }
+        }
         builder.add(
           oldTo,
           newFrom,
@@ -263,6 +285,22 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
             attributes: { "data-tc-offset": String(n.from) },
           }),
         );
+        if (charRuns) {
+          let newRunOffset = 0;
+          for (const run of charRuns.newRuns) {
+            if (run.changed) {
+              builder.add(
+                newFrom + newRunOffset,
+                newFrom + newRunOffset + run.text.length,
+                Decoration.mark({
+                  class: "tc-sub-new-changed",
+                  attributes: { "data-tc-offset": String(n.from) },
+                }),
+              );
+            }
+            newRunOffset += run.text.length;
+          }
+        }
         builder.add(newTo, n.to, hiddenDecoration());
       } else {
         builder.add(
