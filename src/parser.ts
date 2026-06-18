@@ -92,7 +92,14 @@ const HIGHLIGHT_RE = /\{==([\s\S]*?)==\}/g;
 function findCodeRegions(source: string): Array<[number, number]> {
   const regions: Array<[number, number]> = [];
   // Fenced blocks: ``` or ~~~ starting a line, terminated by the same fence on its own line.
-  const fenceRe = /(^|\n)([ \t]*)(```+|~~~+)[^\n]*\n[\s\S]*?(?:\n\2\3[ \t]*(?=\n|$)|$)/g;
+  // Opener and closer may each be indented 0–3 spaces, independently of one another —
+  // CommonMark treats 4+ spaces (or a leading tab) as indented code, not a fence. Capping
+  // the closer at ` {0,3}` matters: a fence line indented ≥4 inside a block is content, not
+  // a close; accepting it would close the block early, leaking the markup that follows and
+  // letting the real closer open a second unterminated region. `\r?\n` in the trailing
+  // lookahead tolerates CRLF documents, where a bare `(?=\n|$)` would never match
+  // (the `\r` sits between the fence and the newline) and the block would run to EOF.
+  const fenceRe = /(^|\n)( {0,3})(```+|~~~+)[^\n]*\n[\s\S]*?(?:\n {0,3}\3[ \t]*(?=\r?\n|$)|$)/g;
   for (const m of source.matchAll(fenceRe)) {
     const from = (m.index ?? 0) + m[1].length;
     regions.push([from, from + m[0].length - m[1].length]);
