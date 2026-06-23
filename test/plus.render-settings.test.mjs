@@ -173,11 +173,11 @@ test("no-regression: legacy {>>Claude: hi<<} → comment, authorName Claude, bod
 
 test("offset invariant: payload excludes the prefix and sigils for all five kinds", () => {
   const fixtures = [
-    "{author=Claude;date=2026-06-14;++added++}",
-    "{author=Claude;date=2026-06-14;--deleted--}",
-    "{author=Claude;~~old~>new~~}",
-    "{author=Claude;>>comment<<}",
-    "{author=Claude;==hi==}",
+    '{author="Claude" date="2026-06-14"++added++}',
+    '{author="Claude" date="2026-06-14"--deleted--}',
+    '{author="Claude"~~old~>new~~}',
+    '{author="Claude">>comment<<}',
+    '{author="Claude"==hi==}',
   ];
   for (const src of fixtures) {
     const r = parse(src);
@@ -206,11 +206,11 @@ test("offset invariant: payload excludes the prefix and sigils for all five kind
 });
 
 test("Live-Preview prefix-hide range [from, innerFrom) is exactly `{<prefix><sigil>`", () => {
-  const src = "{author=Claude;date=2026-06-14;++added++}";
+  const src = '{author="Claude" date="2026-06-14"++added++}';
   const n = parse(src).nodes[0];
   const hidden = src.slice(n.from, n.innerFrom);
   // hiddenDecoration over from..innerFrom removes the opening incl. the prefix.
-  assert.equal(hidden, "{author=Claude;date=2026-06-14;++");
+  assert.equal(hidden, '{author="Claude" date="2026-06-14"++');
   assert.ok(hidden.includes("author="));
   assert.ok(hidden.includes("date="));
   // The visible body that remains never echoes the prefix.
@@ -222,7 +222,7 @@ test("Live-Preview prefix-hide range [from, innerFrom) is exactly `{<prefix><sig
 
 test("Reading: stripping [from, innerFrom) and [innerTo, to) leaves only the body — no prefix echo", () => {
   // Mirrors reading.ts hiding the open token ({<prefix><sigil>) and close sigil.
-  const src = "Keep {author=GPT;date=2026-06-14;==important==} here.";
+  const src = 'Keep {author="GPT" date="2026-06-14"==important==} here.';
   const n = parse(src).nodes.find((x) => x.kind === "highlight");
   const rendered =
     src.slice(0, n.from) + src.slice(n.innerFrom, n.innerTo) + src.slice(n.to);
@@ -232,19 +232,19 @@ test("Reading: stripping [from, innerFrom) and [innerTo, to) leaves only the bod
 });
 
 test("Source mode shows raw prefix verbatim (intended) — raw === source slice", () => {
-  const src = "{author=Claude;date=2026-06-14;++added++}";
+  const src = '{author="Claude" date="2026-06-14"++added++}';
   const n = parse(src).nodes[0];
   // Source mode renders n.raw untouched; it intentionally still shows the prefix.
   assert.equal(n.raw, src);
-  assert.ok(n.raw.includes("author=Claude"));
+  assert.ok(n.raw.includes('author="Claude"'));
 });
 
 test("Reading safety-net: metaRaw is separable so the prefix can be discarded, not surfaced", () => {
   // LITERAL_MARKUP_RE / renderLiteralMatch discards the prefix capture; at the
   // data level that is exactly metaRaw being a distinct, droppable substring.
-  const src = "{author=Bob;date=2026/06/14;>>note<<}";
+  const src = '{author="Bob" date="2026/06/14">>note<<}';
   const n = parse(src).nodes[0];
-  assert.equal(n.metaRaw, "author=Bob;date=2026/06/14;");
+  assert.equal(n.metaRaw, 'author="Bob" date="2026/06/14"');
   // What a literal-fallback renderer keeps (body, prefix discarded):
   const kept = src.slice(n.innerFrom, n.innerTo);
   assert.equal(kept, "note");
@@ -252,6 +252,17 @@ test("Reading safety-net: metaRaw is separable so the prefix can be discarded, n
   assert.ok(!kept.includes("date="));
   // Slash date kept verbatim for display, never validated.
   assert.equal(n.metaDate, "2026/06/14");
+});
+
+test("reading view hides the quoted prefix from output", () => {
+  // Offset-level mirror of reading.ts stripping the open token (incl. the quoted
+  // prefix) and the close sigil: only the body survives, no `author=`/`date=`.
+  const src = '{author="Claude" date="2026-06-14"==important==}';
+  const n = parse(src).nodes[0];
+  const rendered =
+    src.slice(0, n.from) + src.slice(n.innerFrom, n.innerTo) + src.slice(n.to);
+  assert.equal(/author=|date=/.test(rendered), false);
+  assert.ok(rendered.includes("important"));
 });
 
 // ===========================================================================
@@ -272,7 +283,7 @@ test("display fallback: unattributed mark with localAuthorName='' → 'You', no 
 });
 
 test("explicit author beats the localAuthorName fallback", () => {
-  const n = parse("{author=Claude;++x++}").nodes[0];
+  const n = parse('{author="Claude"++x++}').nodes[0];
   assert.equal(resolveAuthor(n, "Phil").label, "Claude");
   assert.equal(authorHue(n, "Phil"), authorHueIndex("Claude"));
 });
@@ -285,8 +296,8 @@ test("display fallback applies to every kind, not just comments", () => {
   }
 });
 
-test("both-present precedence (panel + reading): {author=Alice;>>Bob: hello<<} → Alice, hue Alice, body hello", () => {
-  const n = parse("{author=Alice;>>Bob: hello<<}").nodes[0];
+test('both-present precedence (panel + reading): {author="Alice">>Bob: hello<<} → Alice, hue Alice, body hello', () => {
+  const n = parse('{author="Alice">>Bob: hello<<}').nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, "Alice");
   assert.equal(n.authorName, "Bob"); // legacy capture kept for the legacy path
@@ -296,16 +307,16 @@ test("both-present precedence (panel + reading): {author=Alice;>>Bob: hello<<} �
 });
 
 test("metaLabel: author · date when date present; author alone when absent", () => {
-  const withDate = parse("{author=Claude;date=2026-06-14;++x++}").nodes[0];
+  const withDate = parse('{author="Claude" date="2026-06-14"++x++}').nodes[0];
   assert.equal(metaLabel(withDate, "Phil"), "Claude · 2026-06-14");
-  const noDate = parse("{author=Claude;++x++}").nodes[0];
+  const noDate = parse('{author="Claude"++x++}').nodes[0];
   assert.equal(metaLabel(noDate, "Phil"), "Claude");
   const fallback = parse("{++x++}").nodes[0];
   assert.equal(metaLabel(fallback, ""), "You");
 });
 
 test("author with spaces resolves and hues on the whole trimmed name", () => {
-  const n = parse("{author=Jean Dupont;>>spaces<<}").nodes[0];
+  const n = parse('{author="Jean Dupont">>spaces<<}').nodes[0];
   assert.equal(n.metaAuthor, "Jean Dupont");
   assert.equal(resolveAuthor(n, "").label, "Jean Dupont");
   assert.equal(authorHue(n, ""), authorHueIndex("Jean Dupont"));
@@ -317,17 +328,17 @@ test("author with spaces resolves and hues on the whole trimmed name", () => {
 
 test("byte-equality strip per kind: accept/reject output === bare-prefix-removed equivalent", () => {
   const cases = [
-    { src: "Add {author=A;date=2026-06-14;++X++}.", op: (n) => acceptAddition(n), out: "Add X." },
-    { src: "Add {author=A;date=2026-06-14;++X++}.", op: (n) => rejectAddition(n), out: "Add ." },
-    { src: "Drop {author=Claude;--this--} it.", op: (n) => acceptDeletion(n), out: "Drop  it." },
+    { src: 'Add {author="A" date="2026-06-14"++X++}.', op: (n) => acceptAddition(n), out: "Add X." },
+    { src: 'Add {author="A" date="2026-06-14"++X++}.', op: (n) => rejectAddition(n), out: "Add ." },
+    { src: 'Drop {author="Claude"--this--} it.', op: (n) => acceptDeletion(n), out: "Drop  it." },
     {
-      src: "Keep {author=Claude;date=2026-06-14;--this sentence--} here.",
+      src: 'Keep {author="Claude" date="2026-06-14"--this sentence--} here.',
       op: (n) => rejectDeletion(n),
       out: "Keep this sentence here.",
     },
-    { src: "The {author=GPT;~~old word~>new word~~} stays.", op: (n) => acceptSubstitution(n), out: "The new word stays." },
-    { src: "The {author=GPT;~~old word~>new word~~} stays.", op: (n) => rejectSubstitution(n), out: "The old word stays." },
-    { src: "x {author=A;==important==} y", op: (n) => removeHighlight(n), out: "x important y" },
+    { src: 'The {author="GPT"~~old word~>new word~~} stays.', op: (n) => acceptSubstitution(n), out: "The new word stays." },
+    { src: 'The {author="GPT"~~old word~>new word~~} stays.', op: (n) => rejectSubstitution(n), out: "The old word stays." },
+    { src: 'x {author="A"==important==} y', op: (n) => removeHighlight(n), out: "x important y" },
   ];
   for (const c of cases) {
     const r = parse(c.src);
@@ -340,8 +351,8 @@ test("byte-equality strip per kind: accept/reject output === bare-prefix-removed
   }
 });
 
-test("substitution-ordering safety: {author=X;~~a~>b==c==d~~} accept=b==c==d, reject=a", () => {
-  const src = "{author=X;~~a~>b==c==d~~}";
+test('substitution-ordering safety: {author="X"~~a~>b==c==d~~} accept=b==c==d, reject=a', () => {
+  const src = '{author="X"~~a~>b==c==d~~}';
   const r = parse(src);
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
@@ -356,11 +367,12 @@ test("substitution-ordering safety: {author=X;~~a~>b==c==d~~} accept=b==c==d, re
 // Cross-cutting: corruption guards (must NOT span marks; single braces survive).
 // ===========================================================================
 
-test("corruption guard: --inside-date must NOT span the comment and a real deletion", () => {
-  // `date=2026--bad` has no terminating `;` before the sigil, so the bogus
-  // comment forms no mark under the mandatory-`;` grammar — it can never hand its
-  // `--` to the deletion sigil and straddle. Only the genuine deletion survives.
-  const src = "{author=X;date=2026--bad>>c<<} and {--realdel--}";
+test("corruption guard: unterminated quote must NOT span the comment and a real deletion", () => {
+  // `date="2026--bad` never closes its quote before the next brace, so the pair
+  // fails, the prefix collapses to "", and the bogus comment forms no mark — it
+  // can never hand its `--` to the deletion sigil and straddle. Only the genuine
+  // deletion survives.
+  const src = '{author="X" date="2026--bad>>c<<} and {--realdel--}';
   const r = parse(src);
   // No single mark may straddle from the bogus prefix to the real deletion.
   for (const n of r.nodes) {
@@ -375,17 +387,18 @@ test("corruption guard: --inside-date must NOT span the comment and a real delet
   assert.equal(del.raw, "{--realdel--}");
 });
 
-test("corruption guard: malformed short date {date=2026--6--deleted--} forms no mark", () => {
-  // Under the mandatory-`;` grammar the truncated date value isn't followed by
-  // the required `;`, so no prefix closes and the whole thing forms no mark —
-  // there is no deletion to reject and `6--deleted` can never be restored as prose.
+test("corruption guard: unquoted short date {date=2026--6--deleted--} forms no mark", () => {
+  // No quote → not a valid pair → prefix collapses to ""; `{date=2026…` is not a
+  // sigil, so the whole thing forms no mark — there is no deletion to reject and
+  // `6--deleted` can never be restored as prose.
   const src = "{date=2026--6--deleted--}";
   const r = parse(src);
-  assert.equal(r.nodes.length, 0, "malformed short date forms no mark");
+  assert.equal(r.nodes.length, 0, "unquoted short date forms no mark");
 });
 
-test("corruption guard: brace-in-value degrades to no mark", () => {
-  const r = parse("{author=Claude{nested}>>x<<}");
+test("corruption guard: brace inside a quoted value degrades to no mark", () => {
+  // `}` is forbidden in the value class, so the quote can't close — no mark.
+  const r = parse('{author="a}b">>x<<}');
   assert.equal(r.nodes.length, 0);
 });
 
@@ -399,31 +412,35 @@ test("legit single brace in prose survives as one deletion", () => {
   assert.equal(n.raw, src);
 });
 
-test("timezone offset is unparseable (known limitation): zero marks", () => {
-  const r = parse("{author=Claude;date=2026-06-14T13:45:00+02:00;>>c<<}");
-  assert.equal(r.nodes.length, 0);
+test("timezone offset parses inside a quoted value (rich punctuation allowed)", () => {
+  // `+`, `:`, `-` are all legal inside the quoted value class, so a full ISO
+  // offset timestamp now parses (unlike the old `;`-grammar limitation).
+  const n = parse('{author="Claude" date="2026-06-14T13:45:00+02:00">>c<<}').nodes[0];
+  assert.equal(n.kind, "comment");
+  assert.equal(n.text, "c");
+  assert.equal(n.metaDate, "2026-06-14T13:45:00+02:00");
 });
 
 test("ISO datetime with : and Z parses; prefix captured whole", () => {
-  const n = parse("{author=Claude;date=2026-06-14T13:45:00Z;>>c<<}").nodes[0];
+  const n = parse('{author="Claude" date="2026-06-14T13:45:00Z">>c<<}').nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.text, "c");
   assert.equal(n.metaAuthor, "Claude");
   assert.equal(n.metaDate, "2026-06-14T13:45:00Z");
-  assert.equal(n.metaRaw, "author=Claude;date=2026-06-14T13:45:00Z;");
+  assert.equal(n.metaRaw, 'author="Claude" date="2026-06-14T13:45:00Z"');
 });
 
 test("empty/malformed prefixes degrade safely", () => {
   assert.equal(parse("{=>>x<<}").nodes.length, 0, "{=>>x<<} → no mark");
   assert.equal(parse("{;>>x<<}").nodes.length, 0, "{;>>x<<} → no mark");
-  // The trailing `;` is the MANDATORY pair terminator → valid mark; the degrade
-  // case is the MISSING `;` (value flush against the sigil).
-  assert.equal(parse("{author=A;>>x<<}").nodes.length, 1, "trailing ; terminates the pair → valid mark");
-  assert.equal(parse("{author=A>>x<<}").nodes.length, 0, "missing trailing ; → no mark");
-  assert.equal(parse("{note=a=b;>>x<<}").nodes.length, 0, "multi-= value → no mark");
-  assert.equal(parse("{ author=Claude ;++a++}").nodes.length, 0, "leading space → no mark");
-  // Empty value (terminated with ;) → comment with metaAuthor null.
-  const r = parse("{author=;>>x<<}");
+  // Quoted value flush against the sigil → valid mark; the degrade case is an
+  // unquoted value (no `"`) or an unterminated quote.
+  assert.equal(parse('{author="A">>x<<}').nodes.length, 1, "quoted value abutting sigil → valid mark");
+  assert.equal(parse("{author=A>>x<<}").nodes.length, 0, "unquoted value → no mark");
+  assert.equal(parse('{author="A>>x<<}').nodes.length, 0, "unterminated quote → no mark");
+  assert.equal(parse('{ author="Claude" ++a++}').nodes.length, 0, "leading space → no mark");
+  // Empty value (quoted "") → dropped, so the comment has metaAuthor null.
+  const r = parse('{author="">>x<<}');
   assert.equal(r.nodes.length, 1);
   assert.equal(r.nodes[0].kind, "comment");
   assert.equal(r.nodes[0].metaAuthor, null);
@@ -433,12 +450,12 @@ test("empty/malformed prefixes degrade safely", () => {
 // Cross-cutting: reply stamping (date always; author only when set; sanitize).
 // ===========================================================================
 
-test("reply stamping: localAuthorName='Phil' → {author=Phil;date=<today>>>r<<}, re-parses to Phil", () => {
+test('reply stamping: localAuthorName=\'Phil\' → {author="Phil" date="<today>">>r<<}, re-parses to Phil', () => {
   const src = "{>>Claude: root<<}";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r", "Phil");
   const out = applyEdits(src, [edit]);
-  const reply = `{author=Phil;date=${TODAY};>>r<<}`;
+  const reply = `{author="Phil" date="${TODAY}">>r<<}`;
   assert.ok(out.endsWith(reply), out);
   assert.match(TODAY, /^\d{4}-\d{2}-\d{2}$/);
   // Re-parse the appended reply: author resolves to Phil.
@@ -449,12 +466,12 @@ test("reply stamping: localAuthorName='Phil' → {author=Phil;date=<today>>>r<<}
   assert.equal(replyNode.metaDate, TODAY);
 });
 
-test("reply stamping: localAuthorName='' → {date=<today>>>r<<}, no author=, re-parses to null → You", () => {
+test('reply stamping: localAuthorName=\'\' → {date="<today>">>r<<}, no author=, re-parses to null → You', () => {
   const src = "{>>Claude: root<<}";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r", "");
   const out = applyEdits(src, [edit]);
-  assert.ok(out.endsWith(`{date=${TODAY};>>r<<}`), out);
+  assert.ok(out.endsWith(`{date="${TODAY}">>r<<}`), out);
   assert.ok(!out.includes("author="), "must never write an empty author=");
   const replyNode = parse(out).nodes.find((n) => n.text === "r");
   assert.equal(replyNode.metaAuthor, null);
@@ -464,12 +481,12 @@ test("reply stamping: localAuthorName='' → {date=<today>>>r<<}, no author=, re
 test("reply stamping: malicious name is sanitized, parses as one comment, rebase still works", () => {
   const src = "{>>Claude: root<<}";
   const r = parse(src);
-  const malicious = "Phil; author=Mallory{}";
+  // The quoted prefix only forbids `"`, `{`, `}` (+ control) in a value, so the
+  // sanitizer drops just those; `;`/`=` survive but can't break out of the quote.
+  const malicious = 'Phil; author="Mallory"{}';
   const edit = appendReply(src, r.threads[0], r, "hi", malicious);
-  // Stamped prefix carries none of the structural / sigil chars.
   const sanitized = sanitizeAuthorName(malicious);
-  assert.ok(!/[;={}<>+~]/.test(sanitized), "sanitized name still has structural chars");
-  assert.ok(!sanitized.includes("--"));
+  assert.ok(!/["{}]/.test(sanitized), "sanitized name still has quote/brace chars");
   const out = applyEdits(src, [edit]);
   const rp = parse(out);
   // Exactly one reply comment, attributed to the sanitized name.
@@ -489,12 +506,12 @@ test("reply stamping: malicious name is sanitized, parses as one comment, rebase
 // ===========================================================================
 
 test("fail-closed rebase: drifting the on-disk prefix drops the edit (never corrupts)", () => {
-  const src = "Keep {author=Claude;date=2026-06-14;--this--} here.";
+  const src = 'Keep {author="Claude" date="2026-06-14"--this--} here.';
   const r = parse(src);
   const n = r.nodes[0];
   const edit = rejectDeletion(n); // expected === n.raw, includes the prefix
   // Drift the date in the document since parse-time.
-  const drifted = src.replace("date=2026-06-14", "date=2026-06-15");
+  const drifted = src.replace('date="2026-06-14"', 'date="2026-06-15"');
   const rebased = rebaseEdit(drifted, edit);
   // No `before` anchor on an accept/reject edit → fail closed (returns null).
   assert.equal(rebased, null);
@@ -502,10 +519,10 @@ test("fail-closed rebase: drifting the on-disk prefix drops the edit (never corr
 
 test("rebase round-trip per kind: expected === node.raw (incl. prefix), applies clean", () => {
   const fixtures = [
-    { src: "a {author=A;date=2026-06-14;++x++} b", op: (n) => acceptAddition(n), out: "a x b" },
-    { src: "a {author=A;--x--} b", op: (n) => acceptDeletion(n), out: "a  b" },
-    { src: "a {author=A;~~o~>n~~} b", op: (n) => acceptSubstitution(n), out: "a n b" },
-    { src: "a {author=A;==x==} b", op: (n) => removeHighlight(n), out: "a x b" },
+    { src: 'a {author="A" date="2026-06-14"++x++} b', op: (n) => acceptAddition(n), out: "a x b" },
+    { src: 'a {author="A"--x--} b', op: (n) => acceptDeletion(n), out: "a  b" },
+    { src: 'a {author="A"~~o~>n~~} b', op: (n) => acceptSubstitution(n), out: "a n b" },
+    { src: 'a {author="A"==x==} b', op: (n) => removeHighlight(n), out: "a x b" },
   ];
   for (const c of fixtures) {
     const r = parse(c.src);
@@ -562,7 +579,7 @@ test("empty stored data.json yields full defaults incl. localAuthorName=''", () 
 
 test("finalize strips the prefix on all five marks (no author=/date=/braces for resolved marks)", () => {
   const src =
-    "{author=A;date=2026-06-14;++a++}{author=B;--b--}{author=C;~~o~>n~~}{author=D;>>c<<}{author=E;==h==}";
+    '{author="A" date="2026-06-14"++a++}{author="B"--b--}{author="C"~~o~>n~~}{author="D">>c<<}{author="E"==h==}';
   const r = parse(src);
   const out = applyEdits(src, finalizeEdits(r, DEFAULT_FINALIZE));
   assert.ok(!out.includes("author="), out);
@@ -572,12 +589,12 @@ test("finalize strips the prefix on all five marks (no author=/date=/braces for 
 });
 
 test("finalize with stripHighlights=false leaves a prefixed highlight verbatim (documented)", () => {
-  const src = "{author=X;==keep==}";
+  const src = '{author="X"==keep==}';
   const r = parse(src);
   const opts = { ...DEFAULT_FINALIZE, stripHighlights: false };
   const out = applyEdits(src, finalizeEdits(r, opts));
   // Documented behavior: the kept highlight retains its author/date metadata.
-  assert.equal(out, "{author=X;==keep==}");
+  assert.equal(out, '{author="X"==keep==}');
 });
 
 console.log("done.");

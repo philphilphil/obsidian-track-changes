@@ -45,12 +45,12 @@ export interface ReadingOptions {
 }
 
 // Source-level metadata prefix between the outer `{` and the mark sigil — must
-// match the parser's grammar (src/parser.ts PFX). A run of `key=value;` pairs,
-// each (including the last) terminated by `;`; VAL forbids `;={}<>+~*` and backtick
-// and a `--` run (lone `-` allowed for ISO dates). Used to recognise — and strip —
-// the prefix in the rendered DOM, where it survives as literal text (it's not
-// markdown); excluding `*`/backtick keeps a value from splitting into text nodes.
-const PFX_SRC = "(?:[A-Za-z][\\w.-]*=(?:[^;{}=<>+~*`\\-]|-(?!-))*;)*";
+// match the parser's grammar (src/parser.ts PFX). A run of space-separated
+// `key="value"` pairs, no leading whitespace; the quoted VAL forbids `"`, `{`,
+// `}` and newline. Used to recognise — and strip — the prefix in the rendered
+// DOM, where it survives as literal text (it's not markdown).
+const PFX_SRC =
+  '(?:[A-Za-z][\\w-]*="[^"{}\\n]*"(?:[ \\t]+[A-Za-z][\\w-]*="[^"{}\\n]*")*[ \\t]*)?';
 // `{` + optional prefix + a 2-char open sigil, anchored at the search start.
 const OPEN_WITH_PREFIX = new RegExp(`^\\{${PFX_SRC}(?:\\+\\+|--|>>|~~|==)`);
 // `{` + optional prefix anchored to end-of-text (for cleanBraceWrapped, where
