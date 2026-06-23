@@ -573,6 +573,11 @@ test("empty stored data.json yields full defaults incl. localAuthorName=''", () 
   assert.equal(merged.localAuthorName, "");
 });
 
+test("new-key default-merge: replyDateStyle defaults to 'date'", () => {
+  const merged = loadSettingsMerge({ localAuthorName: "Phil" });
+  assert.equal(merged.replyDateStyle, "date");
+});
+
 // ===========================================================================
 // Finalize: rendering-adjacent — published output never echoes the prefix.
 // ===========================================================================

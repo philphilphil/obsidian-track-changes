@@ -45,6 +45,7 @@ import {
   removeHighlight,
   validateReplyText,
   type SourceEdit,
+  type ReplyDateStyle,
 } from "../operations";
 
 export const REVIEW_VIEW_TYPE = "tc-review-panel";
@@ -88,6 +89,11 @@ export interface PanelHost {
    * stamp replies the panel writes. Read live so settings changes apply at once.
    */
   localAuthorName(): string;
+  /**
+   * How replies the panel writes stamp the date ("date" or "datetime"). Read
+   * live so settings changes apply at once.
+   */
+  replyDateStyle(): ReplyDateStyle;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -384,6 +390,7 @@ export class ReviewPanelView extends ItemView {
         parsed,
         text,
         this.host.localAuthorName(),
+        this.host.replyDateStyle(),
       );
       await this.host.applyEdits(file, [edit]);
     };

@@ -11,7 +11,7 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import { applyEdits, rebaseEdits, type SourceEdit, type ReplyDateStyle } from "./operations";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import {
@@ -155,6 +155,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       confirmBeforeDelete: () => this.settings.confirmBeforeDelete,
       highlightChangedChars: () => this.settings.highlightChangedChars,
       localAuthorName: () => this.settings.localAuthorName ?? "",
+      replyDateStyle: () => this.settings.replyDateStyle,
     };
     return new ReviewPanelView(leaf, host);
   }
