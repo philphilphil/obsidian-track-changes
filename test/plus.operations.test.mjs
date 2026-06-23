@@ -38,6 +38,7 @@ const {
   rejectSubstitution,
   appendReply,
   removeHighlight,
+  sanitizeAuthorName,
 } = ops;
 
 function test(name, fn) {
@@ -69,7 +70,7 @@ console.log("plus.operations:");
 // ---------------------------------------------------------------------------
 
 test("byte-equality strip — addition accept equals bare-mark accept", () => {
-  const prefixed = "x {author=Claude;date=2026-06-14;++ins++} y";
+  const prefixed = 'x {author="Claude" date="2026-06-14"++ins++} y';
   const bare = "x {++ins++} y";
   const op = applyEdits(prefixed, [acceptAddition(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [acceptAddition(onlyNode(bare))]);
@@ -80,7 +81,7 @@ test("byte-equality strip — addition accept equals bare-mark accept", () => {
 });
 
 test("byte-equality strip — addition reject equals bare-mark reject", () => {
-  const prefixed = "x {author=Claude;date=2026-06-14;++ins++} y";
+  const prefixed = 'x {author="Claude" date="2026-06-14"++ins++} y';
   const bare = "x {++ins++} y";
   const op = applyEdits(prefixed, [rejectAddition(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [rejectAddition(onlyNode(bare))]);
@@ -89,7 +90,7 @@ test("byte-equality strip — addition reject equals bare-mark reject", () => {
 });
 
 test("byte-equality strip — deletion accept equals bare-mark accept", () => {
-  const prefixed = "x {author=Claude;date=2026-06-14;--gone--} y";
+  const prefixed = 'x {author="Claude" date="2026-06-14"--gone--} y';
   const bare = "x {--gone--} y";
   const op = applyEdits(prefixed, [acceptDeletion(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [acceptDeletion(onlyNode(bare))]);
@@ -98,7 +99,7 @@ test("byte-equality strip — deletion accept equals bare-mark accept", () => {
 });
 
 test("byte-equality strip — deletion reject restores prose with zero prefix bleed", () => {
-  const prefixed = "x {author=Claude;date=2026-06-14;--gone--} y";
+  const prefixed = 'x {author="Claude" date="2026-06-14"--gone--} y';
   const bare = "x {--gone--} y";
   const op = applyEdits(prefixed, [rejectDeletion(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [rejectDeletion(onlyNode(bare))]);
@@ -110,7 +111,7 @@ test("byte-equality strip — deletion reject restores prose with zero prefix bl
 });
 
 test("byte-equality strip — substitution accept restores new with zero prefix bleed", () => {
-  const prefixed = "x {author=GPT;date=2026-06-14;~~old~>new~~} y";
+  const prefixed = 'x {author="GPT" date="2026-06-14"~~old~>new~~} y';
   const bare = "x {~~old~>new~~} y";
   const op = applyEdits(prefixed, [acceptSubstitution(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [acceptSubstitution(onlyNode(bare))]);
@@ -121,7 +122,7 @@ test("byte-equality strip — substitution accept restores new with zero prefix 
 });
 
 test("byte-equality strip — substitution reject restores old with zero prefix bleed", () => {
-  const prefixed = "x {author=GPT;date=2026-06-14;~~old~>new~~} y";
+  const prefixed = 'x {author="GPT" date="2026-06-14"~~old~>new~~} y';
   const bare = "x {~~old~>new~~} y";
   const op = applyEdits(prefixed, [rejectSubstitution(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [rejectSubstitution(onlyNode(bare))]);
@@ -132,7 +133,7 @@ test("byte-equality strip — substitution reject restores old with zero prefix 
 });
 
 test("byte-equality strip — highlight remove equals bare-mark remove", () => {
-  const prefixed = "x {author=A;==important==} y";
+  const prefixed = 'x {author="A"==important==} y';
   const bare = "x {==important==} y";
   const op = applyEdits(prefixed, [removeHighlight(onlyNode(prefixed))]);
   const ref = applyEdits(bare, [removeHighlight(onlyNode(bare))]);
@@ -146,19 +147,19 @@ test("byte-equality strip — highlight remove equals bare-mark remove", () => {
 // ---------------------------------------------------------------------------
 
 test("deletion-reject keeps prose", () => {
-  const src = "Keep {author=Claude;date=2026-06-14;--this sentence--} here.";
+  const src = 'Keep {author="Claude" date="2026-06-14"--this sentence--} here.';
   const out = applyEdits(src, [rejectDeletion(onlyNode(src))]);
   assert.equal(out, "Keep this sentence here.");
 });
 
 test("deletion-accept applies", () => {
-  const src = "Drop {author=Claude;--this--} it.";
+  const src = 'Drop {author="Claude"--this--} it.';
   const out = applyEdits(src, [acceptDeletion(onlyNode(src))]);
   assert.equal(out, "Drop  it.");
 });
 
 test("substitution-reject restores old / accept uses new", () => {
-  const src = "The {author=GPT;~~old word~>new word~~} stays.";
+  const src = 'The {author="GPT"~~old word~>new word~~} stays.';
   const rej = applyEdits(src, [rejectSubstitution(onlyNode(src))]);
   assert.equal(rej, "The old word stays.");
   const acc = applyEdits(src, [acceptSubstitution(onlyNode(src))]);
@@ -166,7 +167,7 @@ test("substitution-reject restores old / accept uses new", () => {
 });
 
 test("addition accept keeps text / reject removes", () => {
-  const src = "Add {author=A;date=2026-06-14;++X++}.";
+  const src = 'Add {author="A" date="2026-06-14"++X++}.';
   const acc = applyEdits(src, [acceptAddition(onlyNode(src))]);
   assert.equal(acc, "Add X.");
   const rej = applyEdits(src, [rejectAddition(onlyNode(src))]);
@@ -174,7 +175,7 @@ test("addition accept keeps text / reject removes", () => {
 });
 
 test("highlight remove keeps inner text", () => {
-  const src = "{author=A;==important==}";
+  const src = '{author="A"==important==}';
   const out = applyEdits(src, [removeHighlight(onlyNode(src))]);
   assert.equal(out, "important");
 });
@@ -184,7 +185,7 @@ test("highlight remove keeps inner text", () => {
 // ---------------------------------------------------------------------------
 
 test("non-overlap with adjacency — accept(A)+reject(B) yields x, no throw", () => {
-  const src = "{author=A;++x++}{author=B;--y--}";
+  const src = '{author="A"++x++}{author="B"--y--}';
   const r = parse(src);
   assert.equal(r.nodes.length, 2);
   // Two non-overlapping nodes: next.from >= prev.to.
@@ -203,12 +204,61 @@ test("non-overlap with adjacency — accept(A)+reject(B) yields x, no throw", ()
 // Reply stamping. (§13 Operations — Reply stamping)
 // ---------------------------------------------------------------------------
 
+test('appendReply with localAuthorName writes quoted author + date', () => {
+  const src = "{>>root<<}";
+  const parsed = parse(src);
+  const edit = appendReply(src, parsed.threads[0], parsed, "my reply", "Phil");
+  // date is real-clock; assert structure, not the literal date.
+  assert.match(edit.insert, /^\{author="Phil" date="\d{4}-\d{2}-\d{2}">>my reply<<\}$/);
+  // Round-trips: re-parsing the inserted reply yields author Phil.
+  const re = parse(edit.insert);
+  assert.equal(re.nodes[0].metaAuthor, "Phil");
+});
+
+test('appendReply with empty localAuthorName writes date only (→ You)', () => {
+  const src = "{>>root<<}";
+  const parsed = parse(src);
+  const edit = appendReply(src, parsed.threads[0], parsed, "r", "");
+  assert.match(edit.insert, /^\{date="\d{4}-\d{2}-\d{2}">>r<<\}$/);
+  assert.equal(parse(edit.insert).nodes[0].metaAuthor, null);
+});
+
+test('appendReply name with spaces survives (quotes allow whitespace)', () => {
+  const src = "{>>root<<}";
+  const parsed = parse(src);
+  const edit = appendReply(src, parsed.threads[0], parsed, "r", "Phil Baum");
+  assert.match(edit.insert, /^\{author="Phil Baum" date="[^"]+">>r<<\}$/);
+  assert.equal(parse(edit.insert).nodes[0].metaAuthor, "Phil Baum");
+});
+
+test("appendReply sanitizes structural chars but keeps a clean single line", () => {
+  const src = "{>>root<<}";
+  const parsed = parse(src);
+  const edit = appendReply(src, parsed.threads[0], parsed, "r", 'E"vil{}\nName');
+  const re = parse(edit.insert);
+  assert.equal(re.nodes.length, 1);
+  assert.equal(re.nodes[0].metaAuthor, "EvilName");
+});
+
+test("appendReply datetime style stamps a full ISO timestamp", () => {
+  const src = "{>>root<<}";
+  const parsed = parse(src);
+  const edit = appendReply(src, parsed.threads[0], parsed, "r", "Phil", "datetime");
+  assert.match(edit.insert, /date="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"/);
+});
+
+test('sanitizeAuthorName keeps `;`, `=`, `-`, spaces; drops `"{}` and control', () => {
+  assert.equal(sanitizeAuthorName('A; B=C-D'), "A; B=C-D");
+  // `"{}`  are dropped; the surrounding spaces are kept (the value class allows them).
+  assert.equal(sanitizeAuthorName('x"{}  y'), "x  y");
+});
+
 test("reply stamping — localAuthorName=Phil stamps author + today, re-parses to Phil", () => {
   const src = "x {>>Claude: a<<} y";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r", "Phil");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, `x {>>Claude: a<<}{author=Phil;date=${TODAY};>>r<<} y`);
+  assert.equal(out, `x {>>Claude: a<<}{author="Phil" date="${TODAY}">>r<<} y`);
   assert.ok(ISO_DATE.test(TODAY), "today matches YYYY-MM-DD");
   const r2 = parse(out);
   assert.equal(r2.threads.length, 1);
@@ -225,7 +275,7 @@ test("reply stamping — empty localAuthorName writes date only, no author=, re-
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r", "");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, `x {>>Claude: a<<}{date=${TODAY};>>r<<} y`);
+  assert.equal(out, `x {>>Claude: a<<}{date="${TODAY}">>r<<} y`);
   assert.ok(!edit.insert.includes("author="), "never writes an empty author=");
   const r2 = parse(out);
   const reply = r2.nodes[r2.threads[0].replyIndexes[0]];
@@ -238,25 +288,23 @@ test("reply stamping — defaulted localAuthorName arg behaves as empty", () => 
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, `x {>>Claude: a<<}{date=${TODAY};>>r<<} y`);
+  assert.equal(out, `x {>>Claude: a<<}{date="${TODAY}">>r<<} y`);
 });
 
 test("reply stamping — sanitization strips structural chars and still parses as one comment", () => {
   const src = "x {>>Claude: a<<} y";
   const r = parse(src);
-  const dangerous = "Phil; author=Mallory{}";
+  const dangerous = 'Phil author="Mallory"{}';
   const edit = appendReply(src, r.threads[0], r, "r", dangerous);
   const out = applyEdits(src, [edit]);
-  // The stamped prefix must contain no structural / sigil chars (beyond the
-  // single legitimate `author=`/`;`/`date=` scaffolding the stamper emits).
-  // Extract just the author value the stamper wrote.
-  const m = out.match(/\{author=([^;]*);date=/);
+  // The stamped prefix must contain no structural chars the quoted-value class
+  // forbids. Extract just the author value the stamper wrote.
+  const m = out.match(/\{author="([^"]*)" date=/);
   assert.ok(m, "stamped an author= value");
   const authorVal = m[1];
-  for (const ch of [";", "=", "{", "}", "<", ">", "+", "~"]) {
+  for (const ch of ['"', "{", "}"]) {
     assert.ok(!authorVal.includes(ch), `sanitized name still contains ${ch}`);
   }
-  assert.ok(!/--/.test(authorVal), "sanitized name still contains a -- run");
   // Whole thing parses as exactly one extra comment (the reply), attributed to
   // the sanitized name, and rebase-able (one comment node added).
   const r2 = parse(out);
@@ -272,7 +320,7 @@ test("reply stamping — date always matches YYYY-MM-DD in the written mark", ()
   const src = "x {>>Claude: a<<} y";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r", "Phil");
-  const m = edit.insert.match(/date=([^;>]*);>>/);
+  const m = edit.insert.match(/date="([^"]*)">>/);
   assert.ok(m, "reply carries a date=");
   assert.ok(ISO_DATE.test(m[1]), `stamped date ${m[1]} is YYYY-MM-DD`);
 });
@@ -281,12 +329,12 @@ test("reply stamping — date always matches YYYY-MM-DD in the written mark", ()
 // now includes the previous comment's prefix (§7.4). Verify the anchor carries
 // the prefix so uniqueness only tightens.
 test("reply stamping — before anchor includes the previous comment's prefix", () => {
-  const src = "x {author=Bob;date=2026-06-14;>>root<<} y";
+  const src = 'x {author="Bob" date="2026-06-14">>root<<} y';
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "r", "Phil");
   assert.equal(edit.expected, "");
-  assert.equal(edit.before, "{author=Bob;date=2026-06-14;>>root<<}");
-  assert.ok(edit.before.includes("author=Bob"), "anchor includes prefix");
+  assert.equal(edit.before, '{author="Bob" date="2026-06-14">>root<<}');
+  assert.ok(edit.before.includes('author="Bob"'), "anchor includes prefix");
 });
 
 // ---------------------------------------------------------------------------
@@ -295,7 +343,7 @@ test("reply stamping — before anchor includes the previous comment's prefix", 
 // ---------------------------------------------------------------------------
 
 test("substitution-ordering safety — inner ==…== preserved on accept/reject", () => {
-  const prefixed = "p {author=X;~~a~>b==c==d~~} q";
+  const prefixed = 'p {author="X"~~a~>b==c==d~~} q';
   const bare = "p {~~a~>b==c==d~~} q";
   const np = onlyNode(prefixed);
   const nb = onlyNode(bare);
@@ -320,11 +368,11 @@ test("substitution-ordering safety — inner ==…== preserved on accept/reject"
 // ---------------------------------------------------------------------------
 
 test("corruption guard — malformed --date does not straddle; real deletion survives an op", () => {
-  // `date=2026--bad` has no terminating `;` before the sigil, so the bogus
-  // comment forms no mark at all under the mandatory-`;` grammar — it can never
-  // hand its `--` to the deletion sigil and straddle. The genuine deletion is
+  // `date="2026--bad` has no closing quote before the sigil, so the bogus
+  // comment forms no mark at all under the quoted grammar — it can never hand
+  // its `--` to the deletion sigil and straddle. The genuine deletion is
   // therefore the only surviving mark.
-  const src = "{author=X;date=2026--bad>>c<<} and {--realdel--}";
+  const src = '{author="X" date="2026--bad>>c<<} and {--realdel--}';
   const r = parse(src);
   // No single node may span from the comment's `{` to the real deletion's `}`.
   for (const n of r.nodes) {
@@ -336,14 +384,14 @@ test("corruption guard — malformed --date does not straddle; real deletion sur
   assert.ok(del, "the real {--realdel--} deletion survived parsing");
   const out = applyEdits(src, [rejectDeletion(del)]);
   // rejectDeletion keeps "realdel"; the bogus prefix text stays literal, untouched.
-  assert.equal(out, "{author=X;date=2026--bad>>c<<} and realdel");
+  assert.equal(out, '{author="X" date="2026--bad>>c<<} and realdel');
 });
 
 test("corruption guard — short malformed date forms no mark (no op can restore it)", () => {
-  // Under the mandatory-`;` grammar `date=2026--6--deleted--}` is simply no mark:
-  // the truncated date value isn't followed by the required `;`, so there is no
-  // deletion to reject and `6--deleted` can never be resurrected as user prose.
-  const src = "{date=2026--6--deleted--}";
+  // Under the quoted grammar `date="2026--6--deleted--}` is simply no mark: the
+  // truncated date value isn't closed by a `"`, so there is no deletion to
+  // reject and `6--deleted` can never be resurrected as user prose.
+  const src = '{date="2026--6--deleted--}';
   const r = parse(src);
   assert.equal(r.nodes.length, 0, "malformed --date forms no mark at all");
 });
@@ -365,20 +413,20 @@ test("legit single brace in deletion survives and reject restores it verbatim", 
 
 test("edit expected === node.raw and includes the prefix (all five kinds)", () => {
   const cases = [
-    ["{author=A;date=2026-06-14;++t++}", acceptAddition],
-    ["{author=A;date=2026-06-14;--t--}", rejectDeletion],
-    ["{author=A;~~o~>n~~}", acceptSubstitution],
-    ["{author=A;>>c<<}", null], // comment: no accept/reject; check raw spans prefix
-    ["{author=A;==t==}", removeHighlight],
+    ['{author="A" date="2026-06-14"++t++}', acceptAddition],
+    ['{author="A" date="2026-06-14"--t--}', rejectDeletion],
+    ['{author="A"~~o~>n~~}', acceptSubstitution],
+    ['{author="A">>c<<}', null], // comment: no accept/reject; check raw spans prefix
+    ['{author="A"==t==}', removeHighlight],
   ];
   for (const [src, opFn] of cases) {
     const n = onlyNode(src);
     assert.equal(n.raw, src, `raw must span outer-brace to outer-brace for ${src}`);
-    assert.ok(n.raw.includes("author=A"), `raw includes the prefix for ${src}`);
+    assert.ok(n.raw.includes('author="A"'), `raw includes the prefix for ${src}`);
     if (opFn) {
       const edit = opFn(n);
       assert.equal(edit.expected, n.raw, `expected === raw for ${src}`);
-      assert.ok(edit.expected.includes("author=A"), `expected includes prefix for ${src}`);
+      assert.ok(edit.expected.includes('author="A"'), `expected includes prefix for ${src}`);
     }
   }
 });

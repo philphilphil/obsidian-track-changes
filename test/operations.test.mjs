@@ -122,7 +122,7 @@ test("appendReply inserts adjacent with a date= prefix", () => {
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "thanks");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, `x {>>Claude: a<<}{date=${today};>>thanks<<} y`);
+  assert.equal(out, `x {>>Claude: a<<}{date="${today}">>thanks<<} y`);
   // and the new structure parses as a single thread with one reply
   const r2 = parse(out);
   assert.equal(r2.threads.length, 1);
@@ -138,7 +138,7 @@ test("appendReply attaches after the last message of an existing thread", () => 
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "actually no");
   const out = applyEdits(src, [edit]);
-  assert.equal(out, `x {>>Claude: a<<}{>>ignore<<}{date=${today};>>actually no<<} y`);
+  assert.equal(out, `x {>>Claude: a<<}{>>ignore<<}{date="${today}">>actually no<<} y`);
 });
 
 test("appendReply rejects comment closing delimiters in reply text", () => {
