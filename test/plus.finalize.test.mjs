@@ -53,7 +53,7 @@ console.log("plus.finalize:");
 
 test("strips prefix on all five marks with DEFAULT_FINALIZE", () => {
   const src =
-    "{author=A;date=2026-06-14;++a++}{author=B;--b--}{author=C;~~o~>n~~}{author=D;>>c<<}{author=E;==h==}";
+    '{author="A" date="2026-06-14"++a++}{author="B"--b--}{author="C"~~o~>n~~}{author="D">>c<<}{author="E"==h==}';
   const out = finalize(src);
   // Resolved marks leave no metadata and no delimiters behind.
   assert.ok(!out.includes("author="), `leaked author= in: ${JSON.stringify(out)}`);
@@ -62,11 +62,22 @@ test("strips prefix on all five marks with DEFAULT_FINALIZE", () => {
   assert.ok(!out.includes("}"), `leaked } in: ${JSON.stringify(out)}`);
 });
 
+test("finalize strips the quoted prefix on all five marks", () => {
+  const src =
+    'A {author="Claude" date="2026-06-14"++add++} ' +
+    '{author="Codex" date="2026-06-14"--del--} ' +
+    '{author="X" date="2026-06-14"~~old~>new~~} ' +
+    '{author="Y" date="2026-06-14"==hi==} ' +
+    '{author="Z" date="2026-06-14">>c<<} B';
+  const out = finalize(src);
+  assert.equal(/author=|date=|[{}]/.test(out), false);
+});
+
 test("DEFAULT_FINALIZE on prefixed marks yields the same string as the bare equivalent", () => {
   // accept additions, reject deletions, reject substitutions, strip highlights.
   const prefixed =
-    "a {author=A;date=2026-06-14;++ins++} b {author=B;--del--} c " +
-    "{author=C;~~old~>new~~} d {author=D;>>note<<} e {author=E;==hl==} f";
+    'a {author="A" date="2026-06-14"++ins++} b {author="B"--del--} c ' +
+    '{author="C"~~old~>new~~} d {author="D">>note<<} e {author="E"==hl==} f';
   const bare = "a {++ins++} b {--del--} c {~~old~>new~~} d {>>note<<} e {==hl==} f";
   assert.equal(finalize(prefixed), finalize(bare));
   // And the literal expected output.
@@ -81,8 +92,8 @@ test("all-accept across prefixed marks matches bare all-accept byte-for-byte", (
     stripHighlights: true,
   };
   const prefixed =
-    "a {author=A;++ins++} b {date=2026-06-14;--del--} c {author=C;~~old~>new~~} d " +
-    "{author=D;>>Claude: note<<} e {author=E;==hl==} f";
+    'a {author="A"++ins++} b {date="2026-06-14"--del--} c {author="C"~~old~>new~~} d ' +
+    '{author="D">>Claude: note<<} e {author="E"==hl==} f';
   const bare = "a {++ins++} b {--del--} c {~~old~>new~~} d {>>Claude: note<<} e {==hl==} f";
   assert.equal(finalize(prefixed, opts), finalize(bare, opts));
   assert.equal(finalize(prefixed, opts), "a ins b  c new d  e hl f");
@@ -96,8 +107,8 @@ test("all-reject across prefixed marks matches bare all-reject byte-for-byte", (
     stripHighlights: true,
   };
   const prefixed =
-    "a {author=A;++ins++} b {author=B;--del--} c {author=C;date=2026-06-14;~~old~>new~~} d " +
-    "{author=D;>>note<<} e {author=E;==hl==} f";
+    'a {author="A"++ins++} b {author="B"--del--} c {author="C" date="2026-06-14"~~old~>new~~} d ' +
+    '{author="D">>note<<} e {author="E"==hl==} f';
   const bare = "a {++ins++} b {--del--} c {~~old~>new~~} d {>>note<<} e {==hl==} f";
   assert.equal(finalize(prefixed, opts), finalize(bare, opts));
   assert.equal(finalize(prefixed, opts), "a  b del c old d  e hl f");
@@ -106,16 +117,16 @@ test("all-reject across prefixed marks matches bare all-reject byte-for-byte", (
 // ─── Byte-equality strip, per mark, restored content carries zero prefix bleed ─
 
 test("addition accept keeps inner text only (no prefix bleed)", () => {
-  assert.equal(finalize("Add {author=A;date=2026-06-14;++X++}.", { ...DEFAULT_FINALIZE, additions: "accept" }), "Add X.");
+  assert.equal(finalize('Add {author="A" date="2026-06-14"++X++}.', { ...DEFAULT_FINALIZE, additions: "accept" }), "Add X.");
 });
 
 test("addition reject removes the whole mark", () => {
-  assert.equal(finalize("Add {author=A;++X++}.", { ...DEFAULT_FINALIZE, additions: "reject" }), "Add .");
+  assert.equal(finalize('Add {author="A"++X++}.', { ...DEFAULT_FINALIZE, additions: "reject" }), "Add .");
 });
 
 test("deletion reject restores real prose verbatim (no prefix bleed)", () => {
   assert.equal(
-    finalize("Keep {author=Claude;date=2026-06-14;--this sentence--} here.", {
+    finalize('Keep {author="Claude" date="2026-06-14"--this sentence--} here.', {
       ...DEFAULT_FINALIZE,
       deletions: "reject",
     }),
@@ -125,14 +136,14 @@ test("deletion reject restores real prose verbatim (no prefix bleed)", () => {
 
 test("deletion accept removes the deleted span", () => {
   assert.equal(
-    finalize("Drop {author=Claude;--this--} it.", { ...DEFAULT_FINALIZE, deletions: "accept" }),
+    finalize('Drop {author="Claude"--this--} it.', { ...DEFAULT_FINALIZE, deletions: "accept" }),
     "Drop  it.",
   );
 });
 
 test("substitution reject restores oldText (no prefix bleed)", () => {
   assert.equal(
-    finalize("The {author=GPT;~~old word~>new word~~} stays.", {
+    finalize('The {author="GPT"~~old word~>new word~~} stays.', {
       ...DEFAULT_FINALIZE,
       substitutions: "reject",
     }),
@@ -142,7 +153,7 @@ test("substitution reject restores oldText (no prefix bleed)", () => {
 
 test("substitution accept uses newText (no prefix bleed)", () => {
   assert.equal(
-    finalize("The {author=GPT;~~old word~>new word~~} stays.", {
+    finalize('The {author="GPT"~~old word~>new word~~} stays.', {
       ...DEFAULT_FINALIZE,
       substitutions: "accept",
     }),
@@ -152,37 +163,37 @@ test("substitution accept uses newText (no prefix bleed)", () => {
 
 test("highlight strip keeps inner text only", () => {
   assert.equal(
-    finalize("see {author=A;==important==} now", { ...DEFAULT_FINALIZE, stripHighlights: true }),
+    finalize('see {author="A"==important==} now', { ...DEFAULT_FINALIZE, stripHighlights: true }),
     "see important now",
   );
 });
 
 test("comment is stripped whole including its prefix", () => {
-  assert.equal(finalize("x {author=Claude;date=2026-06-14;>>a remark<<} y"), "x  y");
+  assert.equal(finalize('x {author="Claude" date="2026-06-14">>a remark<<} y'), "x  y");
 });
 
 // ─── Spec §13: Un-stripped highlight retains its metadata ──────────────────
 
 test("stripHighlights:false leaves a prefixed highlight verbatim", () => {
-  const src = "before {author=X;==keep==} after";
+  const src = 'before {author="X"==keep==} after';
   const out = finalize(src, { ...DEFAULT_FINALIZE, stripHighlights: false });
-  assert.equal(out, "before {author=X;==keep==} after");
-  assert.ok(out.includes("author=X;==keep=="), "kept highlight must retain author/date metadata");
+  assert.equal(out, 'before {author="X"==keep==} after');
+  assert.ok(out.includes('author="X"==keep=='), "kept highlight must retain author/date metadata");
 });
 
 test("stripHighlights:false produces zero highlight edits but other marks still resolve", () => {
-  const src = "{author=A;++ins++} {author=H;date=2026-06-14;==keep==}";
+  const src = '{author="A"++ins++} {author="H" date="2026-06-14"==keep==}';
   const r = parse(src);
   const opts = { ...DEFAULT_FINALIZE, additions: "accept", stripHighlights: false };
   const edits = finalizeEdits(r, opts);
   // Only the addition produces an edit; the highlight is left alone.
   assert.equal(edits.length, 1);
   const out = applyEdits(src, edits);
-  assert.equal(out, "ins {author=H;date=2026-06-14;==keep==}");
+  assert.equal(out, 'ins {author="H" date="2026-06-14"==keep==}');
 });
 
 test("summary counts a prefixed kept highlight (modal calls it out)", () => {
-  const src = "{author=X;date=2026-06-14;==keep==}";
+  const src = '{author="X" date="2026-06-14"==keep==}';
   const s = summarizeFinalize(parse(src), { ...DEFAULT_FINALIZE, stripHighlights: false });
   assert.equal(s.highlights, 1);
 });
@@ -208,8 +219,8 @@ test("summary identical for prefixed and bare equivalents", () => {
     stripHighlights: true,
   };
   const prefixed =
-    "{author=A;++a1++}{date=2026-06-14;++a2++} {author=B;--d1--} {author=C;~~o~>n~~} " +
-    "{author=D;>>Claude: c1<<} {author=E;==h1==}{author=F;==h2==}";
+    '{author="A"++a1++}{date="2026-06-14"++a2++} {author="B"--d1--} {author="C"~~o~>n~~} ' +
+    '{author="D">>Claude: c1<<} {author="E"==h1==}{author="F"==h2==}';
   const bare = "{++a1++}{++a2++} {--d1--} {~~o~>n~~} {>>Claude: c1<<} {==h1==}{==h2==}";
   assert.deepEqual(summarizeFinalize(parse(prefixed), opts), summarizeFinalize(parse(bare), opts));
 });
@@ -217,10 +228,11 @@ test("summary identical for prefixed and bare equivalents", () => {
 // ─── Corruption guard: nesting straddle must NOT span marks at finalize ─────
 
 test("malformed --in-date does NOT straddle into a real deletion on finalize", () => {
-  // `date=2026--bad` has no terminating `;` before the sigil, so under the
-  // mandatory-`;` grammar the bogus comment forms no mark and stays literal; the
-  // real deletion 50+ chars away finalizes independently and remains intact.
-  const src = "{author=X;date=2026--bad>>c<<} and {--realdel--}";
+  // `date=2026--bad` is unquoted, so under the quoted grammar it isn't a valid
+  // pair: the prefix collapses to "" and the bogus `{author=…>>c<<}` forms no mark
+  // (the `{` isn't immediately followed by a sigil). It stays literal; the real
+  // deletion 30+ chars away finalizes independently and remains intact.
+  const src = '{author=X;date=2026--bad>>c<<} and {--realdel--}';
   const r = parse(src);
   // No single parsed mark spans from the bogus open brace to the real deletion close.
   for (const n of r.nodes) {
@@ -234,14 +246,14 @@ test("malformed --in-date does NOT straddle into a real deletion on finalize", (
   const out = finalize(src, { ...DEFAULT_FINALIZE, deletions: "reject" });
   assert.ok(out.includes("realdel"), `real deletion content lost: ${JSON.stringify(out)}`);
   // The malformed comment text was never swallowed into the deletion span.
-  assert.ok(out.includes("{author=X;date=2026--bad>>c<<}"), `bogus mark was rewritten: ${JSON.stringify(out)}`);
+  assert.ok(out.includes('{author=X;date=2026--bad>>c<<}'), `bogus mark was rewritten: ${JSON.stringify(out)}`);
 });
 
 test("malformed short date forms no mark — never straddles neighbours", () => {
-  // Under the mandatory-`;` grammar {date=2026--6--deleted--} forms no mark: the
-  // truncated date value isn't followed by the required `;`, so the prefix never
-  // closes and it cannot hand its `--` to a sigil and straddle. Pad it with real
-  // prose and a real deletion to prove the surroundings finalize untouched.
+  // Under the quoted grammar {date=2026--6--deleted--} forms no mark: the
+  // unquoted date value isn't a valid pair, so the prefix collapses to "" and the
+  // bare `{` can't open a mark from a `--` mid-prose. Pad it with real prose and a
+  // real deletion to prove the surroundings finalize untouched.
   const src = "alpha {date=2026--6--deleted--} {--keepme--} omega";
   const r = parse(src);
   // No mark spans from the malformed open into the genuine deletion.
@@ -280,7 +292,7 @@ test("reply stamps date always; finalize strips it (named author)", () => {
   const edit = appendReply(base, r.threads[0], r, "an answer", "Phil");
   const stamped = applyEdits(base, [edit]);
   // The reply carries author + today's date.
-  const m = stamped.match(/\{author=Phil;date=(\d{4}-\d{2}-\d{2});>>an answer<<\}/);
+  const m = stamped.match(/\{author="Phil" date="(\d{4}-\d{2}-\d{2})">>an answer<<\}/);
   assert.ok(m, `unexpected reply shape: ${JSON.stringify(stamped)}`);
   assert.ok(TODAY_RE.test(m[1]), `date not YYYY-MM-DD: ${m[1]}`);
   // Re-parse confirms author resolves and finalize wipes all metadata.
@@ -294,7 +306,7 @@ test("reply with empty localAuthorName carries date only, never empty author=", 
   const base = "{>>Claude: q<<}";
   const r = parse(base);
   const stamped = applyEdits(base, [appendReply(base, r.threads[0], r, "r", "")]);
-  const m = stamped.match(/\{date=(\d{4}-\d{2}-\d{2});>>r<<\}/);
+  const m = stamped.match(/\{date="(\d{4}-\d{2}-\d{2})">>r<<\}/);
   assert.ok(m, `expected date-only reply: ${JSON.stringify(stamped)}`);
   assert.ok(!stamped.includes("author="), "must never write an empty author=");
   assert.ok(TODAY_RE.test(m[1]));
@@ -307,7 +319,7 @@ test("reply with empty localAuthorName carries date only, never empty author=", 
 test("reply sanitizes a hostile localAuthorName; mark stays parseable + finalizes", () => {
   const base = "{>>Claude: q<<}";
   const r = parse(base);
-  const hostile = "Phil; author=Mallory{}";
+  const hostile = 'Phil; author=Mallory{}';
   const stamped = applyEdits(base, [appendReply(base, r.threads[0], r, "ok", hostile)]);
 
   // Re-parse: the reply is the second comment node, attributed to the sanitized name.
@@ -315,21 +327,19 @@ test("reply sanitizes a hostile localAuthorName; mark stays parseable + finalize
   assert.equal(re.nodes.length, 2);
   const reply = re.nodes[1];
   assert.equal(reply.text, "ok");
+  // The quoted value class only forbids `"`, `{`, `}` (plus control chars); `;`,
+  // `=`, spaces are harmless *inside* quotes, so the whole hostile string lands in
+  // one opaque value — the injected `author=` never becomes a second pair.
   assert.equal(reply.metaAuthor, sanitizeAuthorName(hostile));
 
-  // The reply's own consumed prefix carries no structural / sigil chars and is an
-  // author= then date= pair, each terminated by `;` — the injected `; author=` /
-  // braces were stripped.
+  // The reply's own consumed prefix carries no structural quote/brace chars and is
+  // exactly an author= pair then a date= pair — first-key-wins keeps the real one.
   const prefix = reply.metaRaw;
-  for (const ch of ["{", "}", "<", ">", "+", "~"]) {
-    assert.ok(!prefix.includes(ch), `sanitized prefix contains ${ch}: ${JSON.stringify(prefix)}`);
+  for (const ch of ['"', "{", "}", "<", ">", "+", "~"]) {
+    assert.ok(!prefix.split('="')[0].includes(ch), `sanitized key region contains ${ch}: ${JSON.stringify(prefix)}`);
   }
-  assert.ok(!prefix.includes("--"), `sanitized prefix contains --: ${JSON.stringify(prefix)}`);
-  // Exactly one author= and one date= survive (the structural separators), each
-  // terminated by `;` under the mandatory-`;` grammar → two semicolons total.
-  assert.equal((prefix.match(/author=/g) || []).length, 1);
-  assert.equal((prefix.match(/date=/g) || []).length, 1);
-  assert.equal((prefix.match(/;/g) || []).length, 2);
+  assert.ok(!prefix.includes("{") && !prefix.includes("}"), `sanitized prefix contains a brace: ${JSON.stringify(prefix)}`);
+  assert.match(prefix, /^author="[^"{}\n]*" date="\d{4}-\d{2}-\d{2}"$/);
 
   // Finalize wipes everything, prefix and all.
   assert.equal(finalize(stamped), "");
@@ -338,7 +348,7 @@ test("reply sanitizes a hostile localAuthorName; mark stays parseable + finalize
 // ─── finalize edits remain non-overlapping with prefixed adjacency ──────────
 
 test("finalizeEdits over adjacent prefixed marks are non-overlapping", () => {
-  const src = "{author=A;++x++}{author=B;--y--}{author=C;==z==}";
+  const src = '{author="A"++x++}{author="B"--y--}{author="C"==z==}';
   const edits = finalizeEdits(parse(src), {
     additions: "accept",
     deletions: "reject",
