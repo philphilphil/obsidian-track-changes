@@ -128,13 +128,13 @@ test("no-regression: legacy <Name>: comment still parses", () => {
 // ---------------------------------------------------------------------------
 
 test("byte-equality: addition raw includes prefix, payload excludes it", () => {
-  const src = "{author=Claude;date=2026-06-14;++added text++}";
+  const src = '{author="Claude" date="2026-06-14"++added text++}';
   const r = parse(src);
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
   assert.equal(n.kind, "addition");
   assert.equal(n.raw, src); // raw spans outer-brace to outer-brace incl. prefix
-  assert.equal(n.metaRaw, "author=Claude;date=2026-06-14;");
+  assert.equal(n.metaRaw, 'author="Claude" date="2026-06-14"');
   assert.equal(n.metaAuthor, "Claude");
   assert.equal(n.metaDate, "2026-06-14");
   assert.equal(n.text, "added text"); // payload excludes prefix + sigils
@@ -143,24 +143,24 @@ test("byte-equality: addition raw includes prefix, payload excludes it", () => {
 });
 
 test("byte-equality: deletion raw includes prefix, payload excludes it", () => {
-  const src = "{author=Claude;date=2026-06-14;--deleted text--}";
+  const src = '{author="Claude" date="2026-06-14"--deleted text--}';
   const r = parse(src);
   const n = r.nodes[0];
   assert.equal(n.kind, "deletion");
   assert.equal(n.raw, src);
-  assert.equal(n.metaRaw, "author=Claude;date=2026-06-14;");
+  assert.equal(n.metaRaw, 'author="Claude" date="2026-06-14"');
   assert.equal(n.text, "deleted text");
   assert.equal(src.slice(n.innerFrom, n.innerTo), "deleted text");
   assertNoPrefixBleed(n);
 });
 
 test("byte-equality: substitution old/new exclude prefix", () => {
-  const src = "{author=Claude;~~old~>new~~}";
+  const src = '{author="Claude"~~old~>new~~}';
   const r = parse(src);
   const n = r.nodes[0];
   assert.equal(n.kind, "substitution");
   assert.equal(n.raw, src);
-  assert.equal(n.metaRaw, "author=Claude;");
+  assert.equal(n.metaRaw, 'author="Claude"');
   assert.equal(n.metaAuthor, "Claude");
   assert.equal(n.metaDate, null); // date omitted
   assert.equal(n.oldText, "old");
@@ -170,12 +170,12 @@ test("byte-equality: substitution old/new exclude prefix", () => {
 });
 
 test("byte-equality: comment body excludes prefix", () => {
-  const src = "{author=Claude;>>a comment<<}";
+  const src = '{author="Claude">>a comment<<}';
   const r = parse(src);
   const n = r.nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.raw, src);
-  assert.equal(n.metaRaw, "author=Claude;");
+  assert.equal(n.metaRaw, 'author="Claude"');
   assert.equal(n.metaAuthor, "Claude");
   assert.equal(n.text, "a comment");
   assert.equal(src.slice(n.innerFrom, n.innerTo), "a comment");
@@ -183,12 +183,12 @@ test("byte-equality: comment body excludes prefix", () => {
 });
 
 test("byte-equality: highlight body excludes prefix", () => {
-  const src = "{author=Claude;==a highlight==}";
+  const src = '{author="Claude"==a highlight==}';
   const r = parse(src);
   const n = r.nodes[0];
   assert.equal(n.kind, "highlight");
   assert.equal(n.raw, src);
-  assert.equal(n.metaRaw, "author=Claude;");
+  assert.equal(n.metaRaw, 'author="Claude"');
   assert.equal(n.metaAuthor, "Claude");
   assert.equal(n.text, "a highlight");
   assert.equal(src.slice(n.innerFrom, n.innerTo), "a highlight");
@@ -200,7 +200,7 @@ test("byte-equality: highlight body excludes prefix", () => {
 // ---------------------------------------------------------------------------
 
 test("CORRUPTION GUARD: --inside-date must NOT span across marks", () => {
-  const src = "{author=X;date=2026--bad>>c<<} and {--realdel--}";
+  const src = '{author="X" date="2026--bad">>c<<} and {--realdel--}';
   const r = parse(src);
   // No single mark may straddle the comment and the genuine deletion.
   for (const n of r.nodes) {
@@ -215,7 +215,9 @@ test("CORRUPTION GUARD: --inside-date must NOT span across marks", () => {
 });
 
 test("CORRUPTION GUARD: malformed short date never forms a straddle", () => {
-  const src = "{date=2026--6--deleted--}";
+  // Legacy-style `date=2026--…` has no quote so it forms no valid pair; the
+  // value class also forbids the brace/sigil straddle.
+  const src = '{date="2026--6--deleted"--}';
   const r = parse(src);
   // Whatever degradation happens, no node may restore "6--deleted" as user
   // prose on reject — i.e. there must be no deletion whose text is the
@@ -241,7 +243,7 @@ test("legit single brace in prose survives as one deletion", () => {
 });
 
 test("brace in value degrades to no mark", () => {
-  const r = parse("{author=Claude{nested}>>x<<}");
+  const r = parse('{author="Claude{nested}">>x<<}');
   assert.equal(r.nodes.length, 0);
 });
 
@@ -250,7 +252,7 @@ test("brace in value degrades to no mark", () => {
 // ---------------------------------------------------------------------------
 
 test("canonical: addition with author+date", () => {
-  const r = parse("{author=Claude;date=2026-06-14;++added text++}");
+  const r = parse('{author="Claude" date="2026-06-14"++added text++}');
   const n = r.nodes[0];
   assert.equal(n.kind, "addition");
   assert.equal(n.metaAuthor, "Claude");
@@ -259,7 +261,7 @@ test("canonical: addition with author+date", () => {
 });
 
 test("canonical: deletion with author+date", () => {
-  const r = parse("{author=Claude;date=2026-06-14;--deleted text--}");
+  const r = parse('{author="Claude" date="2026-06-14"--deleted text--}');
   const n = r.nodes[0];
   assert.equal(n.kind, "deletion");
   assert.equal(n.metaAuthor, "Claude");
@@ -268,7 +270,7 @@ test("canonical: deletion with author+date", () => {
 });
 
 test("canonical: substitution with author, no date", () => {
-  const r = parse("{author=Claude;~~old~>new~~}");
+  const r = parse('{author="Claude"~~old~>new~~}');
   const n = r.nodes[0];
   assert.equal(n.kind, "substitution");
   assert.equal(n.metaAuthor, "Claude");
@@ -278,7 +280,7 @@ test("canonical: substitution with author, no date", () => {
 });
 
 test("canonical: comment with author", () => {
-  const r = parse("{author=Claude;>>a comment<<}");
+  const r = parse('{author="Claude">>a comment<<}');
   const n = r.nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, "Claude");
@@ -286,7 +288,7 @@ test("canonical: comment with author", () => {
 });
 
 test("canonical: highlight with author", () => {
-  const r = parse("{author=Claude;==a highlight==}");
+  const r = parse('{author="Claude"==a highlight==}');
   const n = r.nodes[0];
   assert.equal(n.kind, "highlight");
   assert.equal(n.metaAuthor, "Claude");
@@ -294,11 +296,11 @@ test("canonical: highlight with author", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Date handling: ISO datetime, timezone offset limitation, slash dates.
+// Date handling: ISO datetime, timezone offset, slash dates.
 // ---------------------------------------------------------------------------
 
 test("ISO datetime with colons and Z parses, prefix captured whole", () => {
-  const src = "{author=Claude;date=2026-06-14T13:45:00Z;>>c<<}";
+  const src = '{author="Claude" date="2026-06-14T13:45:00Z">>c<<}';
   const r = parse(src);
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
@@ -306,16 +308,22 @@ test("ISO datetime with colons and Z parses, prefix captured whole", () => {
   assert.equal(n.text, "c");
   assert.equal(n.metaAuthor, "Claude");
   assert.equal(n.metaDate, "2026-06-14T13:45:00Z");
-  assert.equal(n.metaRaw, "author=Claude;date=2026-06-14T13:45:00Z;");
+  assert.equal(n.metaRaw, 'author="Claude" date="2026-06-14T13:45:00Z"');
 });
 
-test("KNOWN LIMITATION: numeric timezone offset makes mark unparseable", () => {
-  const r = parse("{author=Claude;date=2026-06-14T13:45:00+02:00;>>c<<}");
-  assert.equal(r.nodes.length, 0);
+test("numeric timezone offset now parses (quotes allow `+`/`:`)", () => {
+  // The quoted value class permits `+` and `:`, so a full offset timestamp now
+  // forms a mark (it was a known limitation under the old `;`-grammar).
+  const r = parse('{author="Claude" date="2026-06-14T13:45:00+02:00">>c<<}');
+  assert.equal(r.nodes.length, 1);
+  const n = r.nodes[0];
+  assert.equal(n.kind, "comment");
+  assert.equal(n.metaDate, "2026-06-14T13:45:00+02:00");
+  assert.equal(n.text, "c");
 });
 
 test("slash date kept verbatim (display-only, lenient)", () => {
-  const r = parse("{author=Bob;date=2026/06/14;>>c<<}");
+  const r = parse('{author="Bob" date="2026/06/14">>c<<}');
   const n = r.nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, "Bob");
@@ -328,7 +336,7 @@ test("slash date kept verbatim (display-only, lenient)", () => {
 // ---------------------------------------------------------------------------
 
 test("author with a space is allowed and trimmed", () => {
-  const r = parse("{author=Jean Dupont;>>spaces<<}");
+  const r = parse('{author="Jean Dupont">>spaces<<}');
   const n = r.nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, "Jean Dupont");
@@ -336,7 +344,7 @@ test("author with a space is allowed and trimmed", () => {
 });
 
 test("both-present: metaAuthor wins for attribution + hue, legacy stripped from text", () => {
-  const r = parse("{author=A;>>B: hi<<}");
+  const r = parse('{author="A">>B: hi<<}');
   const n = r.nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, "A");
@@ -353,49 +361,33 @@ test("both-present: metaAuthor wins for attribution + hue, legacy stripped from 
 // ---------------------------------------------------------------------------
 
 test("empty key => no mark", () => {
-  assert.equal(parse("{=>>x<<}").nodes.length, 0);
+  assert.equal(parse('{="x">>x<<}').nodes.length, 0);
 });
 
-test("leading semicolon => no mark", () => {
-  assert.equal(parse("{;>>x<<}").nodes.length, 0);
-});
-
-test("trailing semicolon before sigil => valid mark (the mandatory pair terminator)", () => {
-  // Under the new grammar the `;` immediately before the sigil is REQUIRED — it
-  // terminates the last `key=value` pair — so this is a well-formed comment, not
-  // a degraded one. (The degrade-to-no-mark case is the MISSING `;`, below.)
-  const r = parse("{author=A;>>x<<}");
-  assert.equal(r.nodes.length, 1);
-  const n = r.nodes[0];
-  assert.equal(n.kind, "comment");
-  assert.equal(n.metaAuthor, "A");
-  assert.equal(n.text, "x");
-  assert.equal(n.metaRaw, "author=A;");
-});
-
-test("missing trailing semicolon before sigil => no mark", () => {
-  // A pair whose value sits directly against the sigil is not terminated, so no
-  // prefix forms and the mark degrades to nothing.
+test("unquoted value before sigil => no mark", () => {
+  // A bare value with no quotes is not a valid pair, so no prefix forms and the
+  // comment degrades to nothing.
   assert.equal(parse("{author=A>>x<<}").nodes.length, 0);
 });
 
-test("empty value => comment with metaAuthor null", () => {
-  const r = parse("{author=;>>x<<}");
+test("missing closing quote before sigil => no mark", () => {
+  // The value never closes, so no pair matches and the mark degrades to nothing.
+  assert.equal(parse('{author="A>>x<<}').nodes.length, 0);
+});
+
+test("empty quoted value => comment with metaAuthor null, prefix consumed", () => {
+  const r = parse('{author="">>x<<}');
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, null);
   assert.equal(n.text, "x");
-  // The empty-value prefix is still consumed into metaRaw (incl. its terminator).
-  assert.equal(n.metaRaw, "author=;");
+  // The empty-value pair still matches the grammar and is consumed into metaRaw.
+  assert.equal(n.metaRaw, 'author=""');
 });
 
 test("leading space before key => no mark", () => {
-  assert.equal(parse("{ author=Claude ;++a++}").nodes.length, 0);
-});
-
-test("multi-equals value => no mark (non-corrupting)", () => {
-  assert.equal(parse("{note=a=b;>>x<<}").nodes.length, 0);
+  assert.equal(parse('{ author="Claude" ++a++}').nodes.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -403,20 +395,21 @@ test("multi-equals value => no mark (non-corrupting)", () => {
 // ---------------------------------------------------------------------------
 
 test("unknown single key ignored, mark still parses", () => {
-  const r = parse("{unknown=key;++a++}");
+  const r = parse('{unknown="key"++a++}');
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
   assert.equal(n.kind, "addition");
   assert.equal(n.text, "a");
   assert.equal(n.metaAuthor, null);
   assert.equal(n.metaDate, null);
-  // Prefix is consumed even though the key is dropped.
-  assert.equal(n.metaRaw, "unknown=key;");
+  // Prefix is consumed and surfaced on metaAttrs even though author/date drop.
+  assert.equal(n.metaRaw, 'unknown="key"');
+  assert.deepEqual(n.metaAttrs, { unknown: "key" });
   assertNoPrefixBleed(n);
 });
 
 test("adjacent mixed kinds => two independent marks", () => {
-  const r = parse("{author=A;++x++}{author=B;==y==}");
+  const r = parse('{author="A"++x++}{author="B"==y==}');
   assert.equal(r.nodes.length, 2);
   const kinds = r.nodes.map((n) => n.kind);
   assert.deepEqual(kinds, ["addition", "highlight"]);
@@ -427,7 +420,7 @@ test("adjacent mixed kinds => two independent marks", () => {
 });
 
 test("adjacent same-kind comments => two comments", () => {
-  const r = parse("{author=A;>>one<<}{author=B;>>two<<}");
+  const r = parse('{author="A">>one<<}{author="B">>two<<}');
   assert.equal(r.nodes.length, 2);
   assert.equal(r.nodes[0].metaAuthor, "A");
   assert.equal(r.nodes[0].text, "one");
@@ -435,10 +428,9 @@ test("adjacent same-kind comments => two comments", () => {
   assert.equal(r.nodes[1].text, "two");
 });
 
-test("equals-adjacency: {a===x==} is NOT a mark (the a= pair lacks its trailing ;)", () => {
-  // Under the mandatory-`;` grammar, `a=` is not a terminated pair: a value must
-  // be followed by `;` before the sigil, so there is no valid prefix and the
-  // highlight never forms. (A phantom prefix would require `{a=;==x==}`.)
+test("equals-adjacency: {a===x==} is NOT a mark (no quoted pair)", () => {
+  // The quoted grammar requires `key="value"`; a bare `a=` is not a valid pair,
+  // so there is no prefix and the highlight never forms.
   assert.equal(parse("{a===x==}").nodes.length, 0);
 });
 
@@ -447,7 +439,7 @@ test("equals-adjacency: {a==x==} is NOT a mark", () => {
 });
 
 test("substitution inner re-match is dropped", () => {
-  const r = parse("{author=X;~~a~>b==c==d~~}");
+  const r = parse('{author="X"~~a~>b==c==d~~}');
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
   assert.equal(n.kind, "substitution");
@@ -462,7 +454,7 @@ test("substitution inner re-match is dropped", () => {
 // ---------------------------------------------------------------------------
 
 test("prefixed mark immediately after inline code parses cleanly", () => {
-  const r = parse("`x`{author=Y;++z++}");
+  const r = parse('`x`{author="Y"++z++}');
   // The backtick span is a code region; the mark sits clear of it.
   const add = r.nodes.find((n) => n.kind === "addition");
   assert.ok(add, "addition after inline code was lost");
@@ -471,7 +463,7 @@ test("prefixed mark immediately after inline code parses cleanly", () => {
 });
 
 test("value with surrounding space is trimmed for display", () => {
-  const r = parse("{author= Claude ;++a++}");
+  const r = parse('{author=" Claude "++a++}');
   assert.equal(r.nodes.length, 1);
   const n = r.nodes[0];
   assert.equal(n.kind, "addition");
@@ -480,7 +472,72 @@ test("value with surrounding space is trimmed for display", () => {
 });
 
 test("space before the first key kills the match", () => {
-  assert.equal(parse("{ author=Claude;++a++}").nodes.length, 0);
+  assert.equal(parse('{ author="Claude"++a++}').nodes.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Quoted-attribute grammar (the genuinely new behavior).
+// ---------------------------------------------------------------------------
+
+test("quoted prefix: all five kinds parse author + date", () => {
+  const cases = [
+    ['{author="Claude" date="2026-06-14"++add++}', "addition", "add", "Claude"],
+    ['{author="Codex" date="2026-06-14"--del--}', "deletion", "del", "Codex"],
+    ['{author="Gemini" date="2026-06-14"==hi==}', "highlight", "hi", "Gemini"],
+    ['{author="Claude" date="2026-06-14">>note<<}', "comment", "note", "Claude"],
+  ];
+  for (const [src, kind, body, author] of cases) {
+    const { nodes } = parse(src);
+    assert.equal(nodes.length, 1, src);
+    assert.equal(nodes[0].kind, kind);
+    assert.equal(nodes[0].metaAuthor, author);
+    assert.equal(nodes[0].metaDate, "2026-06-14");
+    assert.equal(nodes[0].text, body);
+    assertNoPrefixBleed(nodes[0]);
+  }
+});
+
+test("quoted substitution parses author/date and old/new", () => {
+  const { nodes } = parse('{author="Claude" date="2026-06-14"~~old~>new~~}');
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].kind, "substitution");
+  assert.equal(nodes[0].metaAuthor, "Claude");
+  assert.equal(nodes[0].oldText, "old");
+  assert.equal(nodes[0].newText, "new");
+});
+
+test("metaAttrs surfaces every key incl. unknown future keys", () => {
+  const { nodes } = parse('{author="Claude" date="2026-06-14" status="open">>c<<}');
+  assert.deepEqual(nodes[0].metaAttrs, {
+    author: "Claude",
+    date: "2026-06-14",
+    status: "open",
+  });
+  assert.equal(nodes[0].metaAuthor, "Claude");
+  assert.equal(nodes[0].metaDate, "2026-06-14");
+});
+
+test("quoted values hold spaces and punctuation", () => {
+  // Backtick literal so the apostrophe and the `"` markup chars need no escaping.
+  const { nodes } = parse(`{author="J. O'Reilly, Jr." date="2026-06-14T12:23:46Z"++x++}`);
+  assert.equal(nodes[0].metaAuthor, "J. O'Reilly, Jr.");
+  assert.equal(nodes[0].metaDate, "2026-06-14T12:23:46Z");
+});
+
+test("prefix-free marks parse byte-identically (empty metaAttrs)", () => {
+  const { nodes } = parse("{++plain++}");
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].metaRaw, "");
+  assert.deepEqual(nodes[0].metaAttrs, {});
+  assert.equal(nodes[0].metaAuthor, null);
+  assert.equal(nodes[0].text, "plain");
+});
+
+test("first occurrence of a duplicate key wins; empty values dropped", () => {
+  const { nodes } = parse('{author="First" author="Second" date="">>c<<}');
+  assert.equal(nodes[0].metaAuthor, "First");
+  assert.equal(nodes[0].metaDate, null);
+  assert.equal("date" in nodes[0].metaAttrs, false);
 });
 
 console.log("done.");

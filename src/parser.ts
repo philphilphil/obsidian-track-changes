@@ -27,7 +27,14 @@ export interface BaseNode {
   metaAuthor: string | null;
   /** `date=` value from the prefix (trimmed), or null if absent/empty. Display-only. */
   metaDate: string | null;
-  /** Exact prefix substring consumed (e.g. `author=Claude;date=2026-06-14`), "" if none. */
+  /**
+   * Every metadata `key="value"` pair from the prefix — keys lowercased, values
+   * trimmed, empty values dropped, first occurrence of a key wins. `author`/
+   * `date` are surfaced as `metaAuthor`/`metaDate`; this map also carries any
+   * future key (status, source, …) with no further parser change.
+   */
+  metaAttrs: Record<string, string>;
+  /** Exact prefix substring consumed (e.g. `author="Claude" date="2026-06-14"`), "" if none. */
   metaRaw: string;
   /** Body start offset, after the prefix + sigil. */
   innerFrom: number;
@@ -88,19 +95,20 @@ export interface ParseResult {
 }
 
 // Optional metadata prefix between the outer `{` and the mark sigil: a run of
-// `key=value;` pairs — each pair, INCLUDING the last, terminated by `;`, with no
-// leading whitespace. The mandatory trailing `;` is load-bearing: it guarantees a
-// value can never sit directly against a sigil, so a truncated value (e.g. a
-// malformed date `date=2026--…`) can never hand its `--` to the deletion sigil and
-// straddle — such input simply fails to form a mark instead of corrupting on reject.
-//   KEY = [A-Za-z][\w.-]*     ASCII token (legacy AUTHOR_RE flavor)
-//   VAL = (?:[^;{}=<>+~*`\-]|-(?!-))*   allowed chars + a lone `-` (ISO dates).
-//   `*` and backtick are excluded too, so a value can't smuggle markdown that
-//   would split text nodes and leak the prefix in reading view.
-// PFX is a SINGLE capturing group so payload group indices are fixed: prefix m[1],
-// body/oldText m[2], newText m[3]. PFX matches "" for standard prefix-free marks,
-// so those parse byte-identically to the legacy regexes.
-const PFX = "((?:[A-Za-z][\\w.-]*=(?:[^;{}=<>+~*`\\-]|-(?!-))*;)*)";
+// space-separated `key="value"` pairs, HTML-attribute flavored, with no leading
+// whitespace.
+//   KEY = [A-Za-z][\w-]*     ASCII token, lowercased on lookup
+//   VAL = "[^"{}\n]*"         double-quoted; rich punctuation allowed, but `"`,
+//                             `{`, `}`, newline are forbidden inside the value.
+// Forbidding `{`/`}`/newline is the corruption defense: an unterminated quote
+// (truncated/streamed AI output) can't swallow across a brace or line boundary,
+// so a malformed value fails to form a mark *locally* instead of straddling —
+// the role the old mandatory trailing `;` played.
+// PFX is a SINGLE capturing group so payload group indices stay fixed: prefix
+// m[1], body/oldText m[2], newText m[3]. PFX matches "" for prefix-free marks,
+// which then parse byte-identically to the legacy regexes.
+const PAIR = '[A-Za-z][\\w-]*="[^"{}\\n]*"';
+const PFX = `((?:${PAIR}(?:[ \\t]+${PAIR})*[ \\t]*)?)`;
 const COMMENT_RE = new RegExp(`\\{${PFX}>>([\\s\\S]*?)<<\\}`, "g");
 const ADDITION_RE = new RegExp(`\\{${PFX}\\+\\+([\\s\\S]*?)\\+\\+\\}`, "g");
 const DELETION_RE = new RegExp(`\\{${PFX}--([\\s\\S]*?)--\\}`, "g");
@@ -115,25 +123,26 @@ const INNER_MARK_RE = new RegExp(
 );
 
 interface MetaPrefix {
+  attrs: Record<string, string>;
   author: string | null;
   date: string | null;
 }
 
-// Pure: split PFX on `;`, split each pair on the FIRST `=`, lowercase key for
-// comparison, keep only author/date, trim values, empty value => null. Unknown
-// keys ignored. VAL forbids `=`, so the first-`=` split is lossless.
+// Pure: pull every key="value" pair out of the prefix, lowercase the key, trim
+// the value, drop empties, first occurrence of a key wins. The quoted VAL lets a
+// value hold `;`, `=`, spaces, etc., so the simple global scan is lossless.
+const META_PAIR_RE = /([A-Za-z][\w-]*)="([^"{}\n]*)"/g;
 function parseMetaPrefix(prefix: string): MetaPrefix {
-  const meta: MetaPrefix = { author: null, date: null };
-  if (!prefix) return meta;
-  for (const pair of prefix.split(";")) {
-    const eq = pair.indexOf("=");
-    if (eq < 0) continue;
-    const key = pair.slice(0, eq).toLowerCase();
-    if (key !== "author" && key !== "date") continue;
-    const value = pair.slice(eq + 1).trim();
-    meta[key] = value === "" ? null : value;
+  const attrs: Record<string, string> = {};
+  if (prefix) {
+    for (const m of prefix.matchAll(META_PAIR_RE)) {
+      const key = m[1].toLowerCase();
+      const value = m[2].trim();
+      if (value === "" || key in attrs) continue;
+      attrs[key] = value;
+    }
   }
-  return meta;
+  return { attrs, author: attrs.author ?? null, date: attrs.date ?? null };
 }
 
 // Nesting guard support: does `raw` contain an inner `{` (past the outer one)
@@ -282,6 +291,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
       raw: m[0],
       metaAuthor: meta.author,
       metaDate: meta.date,
+      metaAttrs: meta.attrs,
       metaRaw: m[1],
       innerFrom,
       innerTo: innerFrom + m[2].length,
@@ -300,6 +310,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
       raw: m[0],
       metaAuthor: meta.author,
       metaDate: meta.date,
+      metaAttrs: meta.attrs,
       metaRaw: m[1],
       innerFrom,
       innerTo: innerFrom + m[2].length,
@@ -317,6 +328,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
       raw: m[0],
       metaAuthor: meta.author,
       metaDate: meta.date,
+      metaAttrs: meta.attrs,
       metaRaw: m[1],
       innerFrom,
       innerTo: innerFrom + m[2].length,
@@ -334,6 +346,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
       raw: m[0],
       metaAuthor: meta.author,
       metaDate: meta.date,
+      metaAttrs: meta.attrs,
       metaRaw: m[1],
       innerFrom,
       innerTo: innerFrom + m[2].length,
@@ -360,6 +373,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
       // Precedence: prefix author wins; else fall back to the legacy <Name>:.
       metaAuthor: meta.author ?? authorName,
       metaDate: meta.date,
+      metaAttrs: meta.attrs,
       metaRaw: m[1],
       innerFrom: bodyStart,
       innerTo: bodyStart + body.length,
