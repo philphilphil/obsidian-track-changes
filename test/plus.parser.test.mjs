@@ -215,9 +215,10 @@ test("CORRUPTION GUARD: --inside-date must NOT span across marks", () => {
 });
 
 test("CORRUPTION GUARD: malformed short date never forms a straddle", () => {
-  // Legacy-style `date=2026--…` has no quote so it forms no valid pair; the
-  // value class also forbids the brace/sigil straddle.
-  const src = '{date="2026--6--deleted"--}';
+  // Unterminated quote: no closing `"` before the sigil/brace, so the pair fails,
+  // the prefix collapses to "", and the mark fails to form locally — the
+  // value-class corruption defense, not an incidental dangling sigil.
+  const src = '{date="2026--6--deleted--}';
   const r = parse(src);
   // Whatever degradation happens, no node may restore "6--deleted" as user
   // prose on reject — i.e. there must be no deletion whose text is the

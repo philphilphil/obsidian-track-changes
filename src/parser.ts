@@ -115,13 +115,6 @@ const DELETION_RE = new RegExp(`\\{${PFX}--([\\s\\S]*?)--\\}`, "g");
 const SUBSTITUTION_RE = new RegExp(`\\{${PFX}~~([\\s\\S]*?)~>([\\s\\S]*?)~~\\}`, "g");
 const HIGHLIGHT_RE = new RegExp(`\\{${PFX}==([\\s\\S]*?)==\\}`, "g");
 
-// Used by the post-match nesting guard: detects an inner `{` that opens a
-// parseable mark of any kind, so straddling matches (e.g. a `--`-in-date date
-// swallowing a downstream deletion) can be dropped rather than corrupt the doc.
-const INNER_MARK_RE = new RegExp(
-  `\\{${PFX}(?:>>[\\s\\S]*?<<|\\+\\+[\\s\\S]*?\\+\\+|--[\\s\\S]*?--|~~[\\s\\S]*?~~|==[\\s\\S]*?==)\\}`,
-);
-
 interface MetaPrefix {
   attrs: Record<string, string>;
   author: string | null;
@@ -143,31 +136,6 @@ function parseMetaPrefix(prefix: string): MetaPrefix {
     }
   }
   return { attrs, author: attrs.author ?? null, date: attrs.date ?? null };
-}
-
-// Nesting guard support: does `raw` contain an inner `{` (past the outer one)
-// that begins a parseable mark? A plain `{foo}` in prose is fine; only an inner
-// brace that opens a real mark indicates a straddling match to drop.
-function hasNestedMark(raw: string): boolean {
-  for (let i = 1; i < raw.length; i++) {
-    if (raw.charCodeAt(i) !== 0x7b /* { */) continue;
-    INNER_MARK_RE.lastIndex = 0;
-    const m = INNER_MARK_RE.exec(raw.slice(i));
-    if (m && m.index === 0) return true;
-  }
-  return false;
-}
-
-// Insert into a list kept sorted ascending by `from` (re-admitting recovered marks).
-function insertSorted(list: CriticNode[], node: CriticNode): void {
-  let lo = 0;
-  let hi = list.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (list[mid].from < node.from) lo = mid + 1;
-    else hi = mid;
-  }
-  list.splice(lo, 0, node);
 }
 
 /**
@@ -392,13 +360,14 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   nodes.sort((a, b) => a.from - b.from);
 
   // Drop overlaps: a substitution match's interior could re-match as a smaller
-  // form. Keep the earliest-starting / longest node; discard anything fully
-  // contained by an already-accepted node. Also drop anything that falls
-  // inside a code region — CriticMarkup-looking text in code samples is
-  // literal, not real annotation.
-  //
-  // Use a sorted work queue (not a fixed list) so the nesting guard can re-scan
-  // a dropped straddle's interior and re-admit any legit inner marks it swallowed.
+  // form, and a mark body may legitimately contain a nested mark. Keep the
+  // earliest-starting / longest node and discard anything fully contained by an
+  // already-accepted node — so a nested mark collapses into its outer mark's
+  // body (the inner is part of the added/deleted text), for prefixed and
+  // prefix-free marks alike. Under the quoted grammar a value can't hold a
+  // brace/quote/newline, so a prefixed mark can never straddle — no nesting
+  // guard is needed. Also drop anything inside a code region (CriticMarkup-
+  // looking text in code samples is literal, not real annotation).
   const pending = nodes; // already sorted by `from`
   const accepted: CriticNode[] = [];
   let lastEnd = -1;
@@ -406,28 +375,6 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
     const n = pending.shift() as CriticNode;
     if (n.from < lastEnd) continue; // overlap with previous accepted node
     if (skipCode && rangeEndpointInCode(n.from, n.to, codeRegions)) continue;
-    // Nesting guard (§4.6): a mark whose raw contains an inner `{` that opens a
-    // parseable mark of any kind is a straddle (e.g. a `--`-in-a-malformed-date
-    // date swallowing a downstream real deletion). Drop the outer straddle, then
-    // re-scan its interior so a genuine inner mark survives.
-    //
-    // GATED on a non-empty prefix: the straddle only arises when a metadata value
-    // truncates and hands a sigil/brace to the match, which requires a prefix. A
-    // PREFIX-FREE mark that simply contains an inner mark — `{--remove {>>note<<}
-    // too--}` — is ordinary legacy CriticMarkup and MUST collapse to the outer
-    // mark (the inner is part of the deleted/added text), exactly as before this
-    // feature. Without this gate, such legacy marks would be silently re-parsed
-    // (regression + corruption of pre-existing docs). A legit single brace in
-    // prose — `{--remove the {foo} placeholder--}` — is untouched either way,
-    // because `{foo}` does not open a mark.
-    if (n.metaRaw !== "" && hasNestedMark(n.raw)) {
-      const recovered = collectCandidates(n.raw.slice(1), n.from + 1)
-        .filter((c) => c.from >= lastEnd && c.to <= n.to);
-      if (recovered.length > 0) {
-        for (const c of recovered) insertSorted(pending, c);
-      }
-      continue;
-    }
     accepted.push(n);
     lastEnd = n.to;
   }

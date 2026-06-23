@@ -1,8 +1,10 @@
 // Regression tests for CriticMarkup Plus, ported to the quoted `key="value"`
 // metadata grammar. Two themes:
-//   1. (HIGH) the nesting guard is gated on a non-empty prefix, so prefix-free
-//      legacy marks that contain a nested mark still collapse to the OUTER mark
-//      (byte-identical to pre-feature behavior) instead of being re-parsed.
+//   1. A mark whose body contains a nested mark collapses to the OUTER mark —
+//      for prefixed and prefix-free marks alike (the inner is part of the
+//      added/deleted text). Under the quoted grammar a value can't hold a
+//      brace/quote/newline, so a prefixed mark can never straddle; there is no
+//      prefix-gated nesting guard to drop the outer attributed mark.
 //   2. corruption-locality of the quoted grammar: an unterminated quote, or a
 //      brace / newline inside a value, fails to form a mark *locally* instead of
 //      straddling downstream text — the role the old mandatory trailing `;`
@@ -31,6 +33,7 @@ async function importTs(rel) {
 }
 
 const { parse } = await importTs("../src/parser.ts");
+const { sanitizeAuthorName, appendReply } = await importTs("../src/operations.ts");
 
 function test(name, fn) {
   try {
@@ -52,9 +55,8 @@ const only = (src) => {
 console.log("plus fixes:");
 
 // ---------------------------------------------------------------------------
-// 1. HIGH — prefix-free legacy nested marks collapse to the OUTER mark.
-//    Before the gate these were silently re-parsed to the INNER mark (a
-//    regression that corrupts pre-existing documents).
+// 1. Prefix-free nested marks collapse to the OUTER mark (the inner is part of
+//    the added/deleted text).
 // ---------------------------------------------------------------------------
 
 test("prefix-free deletion containing a comment -> single outer deletion", () => {
@@ -100,6 +102,54 @@ test("prose with a nested-mark deletion -> only the outer deletion, no inner lea
 });
 
 // ---------------------------------------------------------------------------
+// 1b. PREFIXED marks containing a nested mark ALSO collapse to the OUTER mark,
+//     keeping their attribution. (Regression: the old ;-grammar nesting guard,
+//     gated on a non-empty prefix, dropped the outer attributed mark and
+//     re-admitted the inner one. Under the quoted grammar a value can't hold a
+//     brace/quote/newline, so a prefixed mark can never straddle and the guard
+//     is gone.)
+// ---------------------------------------------------------------------------
+
+test("prefixed deletion containing a comment -> single outer deletion, attribution kept", () => {
+  const src = '{author="A"--remove {>>old note<<} too--}';
+  const n = only(src);
+  assert.equal(n.kind, "deletion");
+  assert.equal(n.metaAuthor, "A");
+  assert.equal(n.text, "remove {>>old note<<} too");
+  assert.equal(n.raw, src);
+});
+
+test("prefixed addition containing a comment -> single outer addition", () => {
+  const n = only('{author="A" date="2026-06-14"++add {>>note<<} here++}');
+  assert.equal(n.kind, "addition");
+  assert.equal(n.metaAuthor, "A");
+  assert.equal(n.metaDate, "2026-06-14");
+  assert.equal(n.text, "add {>>note<<} here");
+});
+
+test("prefixed highlight containing a deletion -> single outer highlight", () => {
+  const n = only('{author="A"==highlight {--del--} inside==}');
+  assert.equal(n.kind, "highlight");
+  assert.equal(n.metaAuthor, "A");
+  assert.equal(n.text, "highlight {--del--} inside");
+});
+
+test("prefixed substitution whose new text contains a highlight -> single substitution", () => {
+  const n = only('{date="2026-06-14"~~old~>new with {==hi==}~~}');
+  assert.equal(n.kind, "substitution");
+  assert.equal(n.metaDate, "2026-06-14");
+  assert.equal(n.oldText, "old");
+  assert.equal(n.newText, "new with {==hi==}");
+});
+
+test("prefixed comment containing an addition -> single outer comment", () => {
+  const n = only('{author="A">>outer {++inner++} comment<<}');
+  assert.equal(n.kind, "comment");
+  assert.equal(n.metaAuthor, "A");
+  assert.equal(n.text, "outer {++inner++} comment");
+});
+
+// ---------------------------------------------------------------------------
 // 2. Corruption-locality of the quoted grammar.
 // ---------------------------------------------------------------------------
 
@@ -142,4 +192,26 @@ test("legit single brace in prose survives as one mark", () => {
   const { nodes } = parse("{--remove the {foo} placeholder--}");
   assert.equal(nodes.length, 1);
   assert.equal(nodes[0].kind, "deletion");
+});
+
+// ---------------------------------------------------------------------------
+// 3. sanitizeAuthorName output always round-trips back through the quoted prefix
+//    as exactly one mark with the sanitized author preserved.
+// ---------------------------------------------------------------------------
+
+test("sanitizeAuthorName output round-trips through the quoted prefix", () => {
+  const name = sanitizeAuthorName('Bad"{}\nName');
+  const n = only(`{author="${name}" date="2026-06-14">>r<<}`);
+  assert.equal(n.kind, "comment");
+  assert.equal(n.metaAuthor, name);
+});
+
+test("appendReply with a structural-char name produces a clean single-line mark", () => {
+  const src = "{>>root<<}";
+  const parsed = parse(src);
+  const edit = appendReply(src, parsed.threads[0], parsed, "reply", 'E"vil{}\nName');
+  const re = parse(edit.insert);
+  assert.equal(re.nodes.length, 1);
+  assert.equal(re.nodes[0].kind, "comment");
+  assert.equal(re.nodes[0].metaAuthor, "EvilName");
 });
