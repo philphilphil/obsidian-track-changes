@@ -1,8 +1,8 @@
 // Rebase + round-trip tests for CriticMarkup Plus (author/date prefix).
 // Covers spec section 13 "Rebase", plus the cross-cutting guarantees the prefix
 // has to uphold so rebase stays safe: byte-equality strip per mark, parse
-// no-regression for prefix-free marks, the corruption guards (the `--`-in-date
-// straddle must NOT span marks; legit single braces survive), reply stamping
+// no-regression for prefix-free marks, the corruption guards (an unterminated
+// quoted value must NOT span marks; legit single braces survive), reply stamping
 // (date always; author only when set; sanitization), and fail-closed rebase.
 //
 // Run with: node test/plus.rebase.test.mjs
@@ -114,11 +114,11 @@ test("no-regression: legacy {>>Claude: hi<<} still parses author + clean body", 
 
 test("offset invariant: raw includes prefix; payload excludes prefix + sigils", () => {
   const samples = [
-    "{author=Claude;date=2026-06-14;++added text++}",
-    "{author=Claude;date=2026-06-14;--deleted text--}",
-    "{author=Claude;~~old~>new~~}",
-    "{author=Claude;>>a comment<<}",
-    "{author=Claude;==a highlight==}",
+    '{author="Claude" date="2026-06-14"++added text++}',
+    '{author="Claude" date="2026-06-14"--deleted text--}',
+    '{author="Claude"~~old~>new~~}',
+    '{author="Claude">>a comment<<}',
+    '{author="Claude"==a highlight==}',
   ];
   for (const src of samples) {
     const n = only(src);
@@ -163,7 +163,7 @@ function editFor(node) {
 }
 
 test("byte-equality strip: addition accept/reject == bare mark, no prefix bleed", () => {
-  const pre = "Add {author=A;date=2026-06-14;++X++}.";
+  const pre = 'Add {author="A" date="2026-06-14"++X++}.';
   const bare = "Add {++X++}.";
   const np = parse(pre).nodes[0];
   const nb = parse(bare).nodes[0];
@@ -174,17 +174,17 @@ test("byte-equality strip: addition accept/reject == bare mark, no prefix bleed"
 });
 
 test("byte-equality strip: deletion-reject keeps real prose, no prefix bleed", () => {
-  const pre = "Keep {author=Claude;date=2026-06-14;--this sentence--} here.";
+  const pre = 'Keep {author="Claude" date="2026-06-14"--this sentence--} here.';
   const np = parse(pre).nodes[0];
   assert.equal(applyEdits(pre, [rejectDeletion(np)]), "Keep this sentence here.");
   // deletion-accept applies the deletion
-  const pre2 = "Drop {author=Claude;--this--} it.";
+  const pre2 = 'Drop {author="Claude"--this--} it.';
   const np2 = parse(pre2).nodes[0];
   assert.equal(applyEdits(pre2, [acceptDeletion(np2)]), "Drop  it.");
 });
 
 test("byte-equality strip: substitution restores real content, no prefix bleed", () => {
-  const pre = "The {author=GPT;~~old word~>new word~~} stays.";
+  const pre = 'The {author="GPT"~~old word~>new word~~} stays.';
   const np = parse(pre).nodes[0];
   assert.equal(applyEdits(pre, [rejectSubstitution(np)]), "The old word stays.");
   assert.equal(applyEdits(pre, [acceptSubstitution(np)]), "The new word stays.");
@@ -194,7 +194,7 @@ test("byte-equality strip: substitution restores real content, no prefix bleed",
 });
 
 test("byte-equality strip: highlight remove keeps inner text", () => {
-  const pre = "x {author=A;==important==} y";
+  const pre = 'x {author="A"==important==} y';
   const np = parse(pre).nodes[0];
   assert.equal(applyEdits(pre, [removeHighlight(np)]), "x important y");
 });
@@ -202,7 +202,7 @@ test("byte-equality strip: highlight remove keeps inner text", () => {
 test("byte-equality strip: substitution-inner-rematch newText kept whole (b==c==d)", () => {
   // The {==...==} inside the substitution must NOT be parsed as a highlight; the
   // substitution wins (substitutions-first ordering), newText is the whole run.
-  const pre = "z {author=X;~~a~>b==c==d~~} z";
+  const pre = 'z {author="X"~~a~>b==c==d~~} z';
   const r = parse(pre);
   assert.equal(r.nodes.length, 1);
   const np = r.nodes[0];
@@ -220,11 +220,11 @@ test("byte-equality strip: substitution-inner-rematch newText kept whole (b==c==
 
 test("rebase round-trip: expected === node.raw (includes prefix), in-place succeeds", () => {
   const samples = [
-    "x {author=A;date=2026-06-14;++ins++} y",
-    "x {author=A;date=2026-06-14;--del--} y",
-    "x {author=A;date=2026-06-14;~~o~>n~~} y",
-    "x {author=A;date=2026-06-14;==hi==} y",
-    "x {author=A;date=2026-06-14;>>cmt<<} y",
+    'x {author="A" date="2026-06-14"++ins++} y',
+    'x {author="A" date="2026-06-14"--del--} y',
+    'x {author="A" date="2026-06-14"~~o~>n~~} y',
+    'x {author="A" date="2026-06-14"==hi==} y',
+    'x {author="A" date="2026-06-14">>cmt<<} y',
   ];
   for (const src of samples) {
     const n = parse(src).nodes[0];
@@ -254,13 +254,13 @@ test("rebase round-trip: expected === node.raw (includes prefix), in-place succe
 test("rebase round-trip: applyEdits output byte-identical to the bare-mark op", () => {
   // Same content, with and without the prefix, must finalize identically.
   const cases = [
-    ["x {author=A;date=2026-06-14;++ins++} y", "x {++ins++} y", "accept"],
-    ["x {author=A;date=2026-06-14;++ins++} y", "x {++ins++} y", "reject"],
-    ["x {author=A;date=2026-06-14;--del--} y", "x {--del--} y", "accept"],
-    ["x {author=A;date=2026-06-14;--del--} y", "x {--del--} y", "reject"],
-    ["x {author=A;date=2026-06-14;~~o~>n~~} y", "x {~~o~>n~~} y", "accept"],
-    ["x {author=A;date=2026-06-14;~~o~>n~~} y", "x {~~o~>n~~} y", "reject"],
-    ["x {author=A;date=2026-06-14;==hi==} y", "x {==hi==} y", "remove"],
+    ['x {author="A" date="2026-06-14"++ins++} y', "x {++ins++} y", "accept"],
+    ['x {author="A" date="2026-06-14"++ins++} y', "x {++ins++} y", "reject"],
+    ['x {author="A" date="2026-06-14"--del--} y', "x {--del--} y", "accept"],
+    ['x {author="A" date="2026-06-14"--del--} y', "x {--del--} y", "reject"],
+    ['x {author="A" date="2026-06-14"~~o~>n~~} y', "x {~~o~>n~~} y", "accept"],
+    ['x {author="A" date="2026-06-14"~~o~>n~~} y', "x {~~o~>n~~} y", "reject"],
+    ['x {author="A" date="2026-06-14"==hi==} y', "x {==hi==} y", "remove"],
   ];
   const opFor = (n, which) => {
     if (n.kind === "addition") return which === "accept" ? acceptAddition(n) : rejectAddition(n);
@@ -281,7 +281,7 @@ test("rebase round-trip: applyEdits output byte-identical to the bare-mark op", 
 
 test("rebase round-trip: comment delete via thread-aware before anchor", () => {
   // A prefixed comment's delete edit anchors on raw; rebase succeeds in place.
-  const src = "note {author=Claude;date=2026-06-14;>>looks good<<} end";
+  const src = 'note {author="Claude" date="2026-06-14">>looks good<<} end';
   const n = parse(src).nodes[0];
   const edit = deleteCommentNode(n);
   assert.equal(edit.expected, n.raw);
@@ -298,22 +298,22 @@ test("rebase round-trip: comment delete via thread-aware before anchor", () => {
 // ---------------------------------------------------------------------------
 
 test("rebase fail-closed: drifted date= prefix => rebaseEdit returns null (addition)", () => {
-  const parsedSrc = "x {author=A;date=2026-06-14;++ins++} y";
+  const parsedSrc = 'x {author="A" date="2026-06-14"++ins++} y';
   const n = parse(parsedSrc).nodes[0];
   const edit = acceptAddition(n);
   // The doc on disk drifted: someone changed the date in the prefix.
-  const driftedDoc = "x {author=A;date=2026-06-15;++ins++} y";
+  const driftedDoc = 'x {author="A" date="2026-06-15"++ins++} y';
   assert.notEqual(driftedDoc.slice(edit.from, edit.to), edit.expected);
   assert.equal(rebaseEdit(driftedDoc, edit), null);
 });
 
 test("rebase fail-closed: drifted prefix across all five kinds => null", () => {
   const cases = [
-    ["x {author=A;date=2026-06-14;++ins++} y", "x {author=A;date=2026-06-15;++ins++} y"],
-    ["x {author=A;date=2026-06-14;--del--} y", "x {author=A;date=2026-06-15;--del--} y"],
-    ["x {author=A;date=2026-06-14;~~o~>n~~} y", "x {author=A;date=2026-06-15;~~o~>n~~} y"],
-    ["x {author=A;date=2026-06-14;==hi==} y", "x {author=A;date=2026-06-15;==hi==} y"],
-    ["x {author=A;date=2026-06-14;>>c<<} y", "x {author=A;date=2026-06-15;>>c<<} y"],
+    ['x {author="A" date="2026-06-14"++ins++} y', 'x {author="A" date="2026-06-15"++ins++} y'],
+    ['x {author="A" date="2026-06-14"--del--} y', 'x {author="A" date="2026-06-15"--del--} y'],
+    ['x {author="A" date="2026-06-14"~~o~>n~~} y', 'x {author="A" date="2026-06-15"~~o~>n~~} y'],
+    ['x {author="A" date="2026-06-14"==hi==} y', 'x {author="A" date="2026-06-15"==hi==} y'],
+    ['x {author="A" date="2026-06-14">>c<<} y', 'x {author="A" date="2026-06-15">>c<<} y'],
   ];
   for (const [pre, drifted] of cases) {
     const n = parse(pre).nodes[0];
@@ -324,17 +324,17 @@ test("rebase fail-closed: drifted prefix across all five kinds => null", () => {
 });
 
 test("rebase fail-closed: drifted author= prefix (same date) => null", () => {
-  const pre = "x {author=Alice;date=2026-06-14;++ins++} y";
+  const pre = 'x {author="Alice" date="2026-06-14"++ins++} y';
   const n = parse(pre).nodes[0];
   const edit = acceptAddition(n);
-  const drifted = "x {author=Bob;date=2026-06-14;++ins++} y";
+  const drifted = 'x {author="Bob" date="2026-06-14"++ins++} y';
   assert.equal(rebaseEdit(drifted, edit), null);
 });
 
 test("rebase fail-closed: removing the prefix entirely on disk => null", () => {
   // A bare mark and a prefixed mark are different raw text; the prefixed edit
   // must not silently re-target the now-bare mark (no `before`, fails closed).
-  const pre = "x {author=A;date=2026-06-14;++ins++} y";
+  const pre = 'x {author="A" date="2026-06-14"++ins++} y';
   const n = parse(pre).nodes[0];
   const edit = acceptAddition(n);
   const bareDoc = "x {++ins++} y";
@@ -342,12 +342,14 @@ test("rebase fail-closed: removing the prefix entirely on disk => null", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CORRUPTION GUARDS — the central never-corrupt invariant. A `--`-in-date
-// straddle must NOT span across marks; legit single braces survive.
+// CORRUPTION GUARDS — the central never-corrupt invariant. An unterminated
+// quoted value must NOT span across marks; legit single braces survive.
 // ---------------------------------------------------------------------------
 
-test("corruption guard: --in-date straddle does NOT span the comment + real deletion", () => {
-  const src = "{author=X;date=2026--bad>>c<<} and {--realdel--}";
+test("corruption guard: unterminated quote straddle does NOT span the comment + real deletion", () => {
+  // The date value has no closing `"` before the next `}`, so the pair fails,
+  // the prefix collapses to "" and no comment forms; the genuine deletion lives.
+  const src = '{author="X" date="2026--bad>>c<<} and {--realdel--}';
   const r = parse(src);
   // The malformed comment degrades; the genuine deletion survives.
   const dels = r.nodes.filter((n) => n.kind === "deletion");
@@ -362,18 +364,20 @@ test("corruption guard: --in-date straddle does NOT span the comment + real dele
   }
   // And rejecting the surviving deletion must restore exactly "realdel", never
   // "...>>c<<} and {--realdel" or any straddled garbage.
-  assert.equal(applyEdits(src, [rejectDeletion(del)]), "{author=X;date=2026--bad>>c<<} and realdel");
+  assert.equal(
+    applyEdits(src, [rejectDeletion(del)]),
+    '{author="X" date="2026--bad>>c<<} and realdel',
+  );
 });
 
-test("corruption guard: malformed short date — forms no mark, so no op can restore prose", () => {
-  // SPEC §13: {date=2026--6--deleted--} → no mark under the mandatory-`;` grammar.
-  // The truncated date value `2026` (it stops at the first `-` of `--`) is not
-  // followed by the required `;`, so the prefix never closes and the whole thing
-  // fails to form a mark. With no deletion node there is nothing to reject, so
+test("corruption guard: unterminated quoted value — forms no mark, so no op can restore prose", () => {
+  // {date="2026--6--deleted--} → the date value never closes its quote before the
+  // final `}`, so the pair fails, the prefix collapses to "" and the whole thing
+  // forms no mark. With no deletion node there is nothing to reject, so
   // "6--deleted" can never be restored as user prose.
-  const src = "{date=2026--6--deleted--}";
+  const src = '{date="2026--6--deleted--}';
   const r = parse(src);
-  assert.equal(r.nodes.length, 0, "malformed short date must form no mark");
+  assert.equal(r.nodes.length, 0, "unterminated quoted value must form no mark");
 });
 
 test("corruption guard: legit single brace in prose survives as one deletion", () => {
@@ -387,7 +391,8 @@ test("corruption guard: legit single brace in prose survives as one deletion", (
 });
 
 test("corruption guard: brace-in-value prefix degrades (no mark)", () => {
-  assert.equal(parse("{author=Claude{nested}>>x<<}").nodes.length, 0);
+  // `{` is forbidden inside the quoted value, so the value can't close — no mark.
+  assert.equal(parse('{author="Claude{nested}">>x<<}').nodes.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -395,23 +400,28 @@ test("corruption guard: brace-in-value prefix degrades (no mark)", () => {
 // ---------------------------------------------------------------------------
 
 test("malformed prefixes degrade safely (no mark / plain mark)", () => {
-  assert.equal(parse("{=>>x<<}").nodes.length, 0, "empty key => no mark");
+  assert.equal(parse("{=>>x<<}").nodes.length, 0, "stray = => no mark");
   assert.equal(parse("{;>>x<<}").nodes.length, 0, "leading ; => no mark");
-  // The trailing `;` is the MANDATORY pair terminator => valid mark; the degrade
-  // case is the MISSING `;` (value flush against the sigil).
-  assert.equal(parse("{author=A;>>x<<}").nodes.length, 1, "trailing ; terminates the pair => valid mark");
-  assert.equal(parse("{author=A>>x<<}").nodes.length, 0, "missing trailing ; before sigil => no mark");
-  assert.equal(parse("{ author=Claude;++a++}").nodes.length, 0, "leading space => no mark");
-  assert.equal(parse("{note=a=b;>>x<<}").nodes.length, 0, "second = in value => no mark");
-  // Empty value (terminated with ;) => still a comment, metaAuthor null.
-  const n = only("{author=;>>x<<}");
+  // A quoted pair whose value closes against the sigil is valid; the degrade case
+  // is the UNQUOTED value (no `"` at all).
+  assert.equal(parse('{author="A">>x<<}').nodes.length, 1, "quoted value abutting the sigil => valid mark");
+  assert.equal(parse("{author=A>>x<<}").nodes.length, 0, "unquoted value => no mark");
+  assert.equal(parse('{ author="Claude"++a++}').nodes.length, 0, "leading space => no mark");
+  assert.equal(parse('{note="a"="b">>x<<}').nodes.length, 0, "stray = between pairs => no mark");
+  // Empty value (`author=""`) => prefix is valid but the empty value is dropped, so
+  // it is still a comment with metaAuthor null.
+  const n = only('{author="">>x<<}');
   assert.equal(n.kind, "comment");
   assert.equal(n.metaAuthor, null);
   assert.equal(n.text, "x");
 });
 
-test("timezone-offset date makes the mark unparseable (known limitation)", () => {
-  assert.equal(parse("{author=Claude;date=2026-06-14T13:45:00+02:00;>>c<<}").nodes.length, 0);
+test("timezone-offset date now parses (quoted value holds the `+`)", () => {
+  // Under the quoted grammar a full ISO-with-offset date is a legal value; the
+  // old `;`-form choked on the `+`, the quoted form does not.
+  const n = only('{author="Claude" date="2026-06-14T13:45:00+02:00">>c<<}');
+  assert.equal(n.kind, "comment");
+  assert.equal(n.metaDate, "2026-06-14T13:45:00+02:00");
 });
 
 // ---------------------------------------------------------------------------
@@ -428,9 +438,9 @@ function threadFor(src) {
 test("reply stamping: with localAuthorName => author= + date=; re-parses + rebases", () => {
   const { src, parsed, thread } = threadFor("root {>>Claude: hi<<} tail");
   const edit = appendReply(src, thread, parsed, "thanks", "Phil");
-  assert.match(edit.insert, /^\{author=Phil;date=\d{4}-\d{2}-\d{2};>>thanks<<\}$/);
+  assert.match(edit.insert, /^\{author="Phil" date="\d{4}-\d{2}-\d{2}">>thanks<<\}$/);
   // date is the real clock, YYYY-MM-DD.
-  const date = edit.insert.match(/date=(\d{4}-\d{2}-\d{2})/)[1];
+  const date = edit.insert.match(/date="(\d{4}-\d{2}-\d{2})"/)[1];
   assert.match(date, TODAY_RE);
   assert.equal(date, new Date().toISOString().slice(0, 10));
   // The reply edit anchors on before=last.raw (now incl. its prefix); rebase in place.
@@ -447,7 +457,7 @@ test("reply stamping: with localAuthorName => author= + date=; re-parses + rebas
 test("reply stamping: empty localAuthorName => date= only, no author=, => You", () => {
   const { src, parsed, thread } = threadFor("root {>>Claude: hi<<} tail");
   const edit = appendReply(src, thread, parsed, "ok", "");
-  assert.match(edit.insert, /^\{date=\d{4}-\d{2}-\d{2};>>ok<<\}$/);
+  assert.match(edit.insert, /^\{date="\d{4}-\d{2}-\d{2}">>ok<<\}$/);
   assert.ok(!edit.insert.includes("author="), "never write an empty author=");
   const out = applyEdits(src, [rebaseEdit(src, edit)]);
   const re = parse(out);
@@ -457,23 +467,26 @@ test("reply stamping: empty localAuthorName => date= only, no author=, => You", 
 });
 
 test("reply stamping: malicious name is sanitized; stays one mark; rebases", () => {
-  const dirty = "Phil; author=Mallory{}";
+  // The quoted value class only forbids `"`, `{`, `}`, newline — those (and
+  // control chars) are the only chars the sanitizer strips. `;`, `=`, `<`, `>`
+  // etc. are safe inside the quotes, so they survive.
+  const dirty = 'Phil"; author=Mallory{}';
   const clean = sanitizeAuthorName(dirty);
-  // No structural / sigil chars survive sanitization.
-  for (const ch of [";", "=", "{", "}", "<", ">", "+", "~"]) {
+  for (const ch of ['"', "{", "}"]) {
     assert.ok(!clean.includes(ch), `sanitized name must not contain ${ch}`);
   }
-  assert.ok(!/--/.test(clean), "no -- run survives");
+  assert.equal(clean, "Phil; author=Mallory");
   const { src, parsed, thread } = threadFor("root {>>Claude: hi<<} tail");
   const edit = appendReply(src, thread, parsed, "reply", dirty);
-  // The stamped prefix must not contain a second key or any sigil.
-  assert.match(edit.insert, /^\{author=[^;={}<>+~]*;date=\d{4}-\d{2}-\d{2};>>reply<<\}$/);
+  // The stamped prefix is a single author= pair; the value holds no `"`/`{`/`}`.
+  assert.match(edit.insert, /^\{author="[^"{}]*" date="\d{4}-\d{2}-\d{2}">>reply<<\}$/);
   const out = applyEdits(src, [rebaseEdit(src, edit)]);
   // The whole document still parses without a straddle; the reply is ONE comment.
   const re = parse(out);
   const reply = re.nodes.find((n) => n.text === "reply");
   assert.ok(reply, "sanitized reply parses as a single comment");
   assert.equal(reply.kind, "comment");
+  assert.equal(reply.metaAuthor, "Phil; author=Mallory");
 });
 
 test("reply stamping: appended reply threads with the root (adjacency preserved)", () => {
