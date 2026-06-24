@@ -21,8 +21,25 @@ export interface BaseNode {
   from: number;
   /** character offset just past the closing brace */
   to: number;
-  /** raw source text from `from` to `to` */
+  /** raw source text from `from` to `to`, INCLUDING any metadata prefix */
   raw: string;
+  /** Resolved `author=` value from the prefix (trimmed), or null if absent/empty. */
+  metaAuthor: string | null;
+  /** `date=` value from the prefix (trimmed), or null if absent/empty. Display-only. */
+  metaDate: string | null;
+  /**
+   * Every metadata `key="value"` pair from the prefix — keys lowercased, values
+   * trimmed, empty values dropped, first occurrence of a key wins. `author`/
+   * `date` are surfaced as `metaAuthor`/`metaDate`; this map also carries any
+   * future key (status, source, …) with no further parser change.
+   */
+  metaAttrs: Record<string, string>;
+  /** Exact prefix substring consumed (e.g. `author="Claude" date="2026-06-14"`), "" if none. */
+  metaRaw: string;
+  /** Body start offset, after the prefix + sigil. */
+  innerFrom: number;
+  /** Body end offset, before the closing sigil. */
+  innerTo: number;
 }
 
 export interface CommentNode extends BaseNode {
@@ -77,11 +94,58 @@ export interface ParseResult {
   nodeThread: number[];
 }
 
-const COMMENT_RE = /\{>>([\s\S]*?)<<\}/g;
-const ADDITION_RE = /\{\+\+([\s\S]*?)\+\+\}/g;
-const DELETION_RE = /\{--([\s\S]*?)--\}/g;
-const SUBSTITUTION_RE = /\{~~([\s\S]*?)~>([\s\S]*?)~~\}/g;
-const HIGHLIGHT_RE = /\{==([\s\S]*?)==\}/g;
+// Optional metadata prefix between the outer `{` and the mark sigil: a run of
+// space/tab-separated `key="value"` pairs, HTML-attribute flavored, with no
+// leading whitespace.
+//   KEY = [A-Za-z][\w-]*     ASCII token, lowercased on lookup
+//   VAL = "[^"{}\n]*"         double-quoted; rich punctuation allowed, but `"`,
+//                             `{`, `}`, newline are forbidden inside the value.
+// Forbidding `{`/`}`/newline is the corruption defense: an unterminated quote
+// (truncated/streamed AI output) can't swallow across a brace or line boundary,
+// so a malformed value fails to form a mark *locally* instead of straddling —
+// the role the old mandatory trailing `;` played.
+
+/** One `key="value"` pair (no captures): the atom of the metadata-prefix grammar. */
+export const META_PAIR = '[A-Za-z][\\w-]*="[^"{}\\n]*"';
+/**
+ * Metadata prefix as a NON-capturing, optional source fragment — a run of
+ * space/tab-separated pairs. Exported as the single source of truth so the
+ * reading-view post-processor (src/reading.ts) matches this grammar byte-for-
+ * byte instead of re-declaring it.
+ */
+export const META_PREFIX_SRC = `(?:${META_PAIR}(?:[ \\t]+${META_PAIR})*[ \\t]*)?`;
+// PFX wraps it in a SINGLE capturing group so payload group indices stay fixed:
+// prefix m[1], body/oldText m[2], newText m[3]. Matches "" for prefix-free marks,
+// which then parse byte-identically to the legacy regexes.
+const PFX = `(${META_PREFIX_SRC})`;
+const COMMENT_RE = new RegExp(`\\{${PFX}>>([\\s\\S]*?)<<\\}`, "g");
+const ADDITION_RE = new RegExp(`\\{${PFX}\\+\\+([\\s\\S]*?)\\+\\+\\}`, "g");
+const DELETION_RE = new RegExp(`\\{${PFX}--([\\s\\S]*?)--\\}`, "g");
+const SUBSTITUTION_RE = new RegExp(`\\{${PFX}~~([\\s\\S]*?)~>([\\s\\S]*?)~~\\}`, "g");
+const HIGHLIGHT_RE = new RegExp(`\\{${PFX}==([\\s\\S]*?)==\\}`, "g");
+
+interface MetaPrefix {
+  attrs: Record<string, string>;
+  author: string | null;
+  date: string | null;
+}
+
+// Pure: pull every key="value" pair out of the prefix, lowercase the key, trim
+// the value, drop empties, first occurrence of a key wins. The quoted VAL lets a
+// value hold `;`, `=`, spaces, etc., so the simple global scan is lossless.
+const META_PAIR_RE = /([A-Za-z][\w-]*)="([^"{}\n]*)"/g;
+function parseMetaPrefix(prefix: string): MetaPrefix {
+  const attrs: Record<string, string> = {};
+  if (prefix) {
+    for (const m of prefix.matchAll(META_PAIR_RE)) {
+      const key = m[1].toLowerCase();
+      const value = m[2].trim();
+      if (value === "" || key in attrs) continue;
+      attrs[key] = value;
+    }
+  }
+  return { attrs, author: attrs.author ?? null, date: attrs.date ?? null };
+}
 
 /**
  * Find ranges of source covered by Markdown code (fenced blocks, indented
@@ -185,75 +249,137 @@ export interface ParseOptions {
   skipCode?: boolean;
 }
 
-export function parse(source: string, options: ParseOptions = {}): ParseResult {
-  const skipCode = options.skipCode !== false;
-  const codeRegions = skipCode ? findCodeRegions(source) : [];
-  const nodes: CriticNode[] = [];
-
+// Run the five regexes over `text` and return candidate nodes. Group indices
+// are fixed: prefix = m[1]; body / oldText = m[2]; newText = m[3]. The prefix
+// occupies `{` + metaRaw; the sigil follows. innerFrom/innerTo bound the
+// payload, excluding the prefix and sigils.
+function collectCandidates(text: string): CriticNode[] {
+  const out: CriticNode[] = [];
   // Substitutions first — their {~~...~~} could otherwise be confused with highlights.
-  for (const m of source.matchAll(SUBSTITUTION_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(SUBSTITUTION_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>~~
+    out.push({
       kind: "substitution",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      oldText: m[1],
-      newText: m[2],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaAttrs: meta.attrs,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      oldText: m[2],
+      newText: m[3],
     });
   }
-  for (const m of source.matchAll(ADDITION_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(ADDITION_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>++
+    out.push({
       kind: "addition",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      text: m[1],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaAttrs: meta.attrs,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
     });
   }
-  for (const m of source.matchAll(DELETION_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(DELETION_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>--
+    out.push({
       kind: "deletion",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      text: m[1],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaAttrs: meta.attrs,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
     });
   }
-  for (const m of source.matchAll(HIGHLIGHT_RE)) {
-    nodes.push({
+  for (const m of text.matchAll(HIGHLIGHT_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>==
+    out.push({
       kind: "highlight",
-      from: m.index,
-      to: m.index + m[0].length,
+      from,
+      to: from + m[0].length,
       raw: m[0],
-      text: m[1],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaAttrs: meta.attrs,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
     });
   }
-  for (const m of source.matchAll(COMMENT_RE)) {
+  for (const m of text.matchAll(COMMENT_RE)) {
     const raw = m[0];
-    const body = m[1];
+    const meta = parseMetaPrefix(m[1]);
+    const body = m[2];
+    const from = m.index;
+    const bodyStart = from + 1 + m[1].length + 2; // {<prefix>>>
+    // Strip a legacy <Name>: from the body text regardless of metaAuthor; the
+    // prefix author wins for attribution, the legacy capture is kept on
+    // authorName for the legacy path and used as text cleanup here.
     const authorMatch = body.match(AUTHOR_RE);
     const authorName = authorMatch ? authorMatch[1] : null;
-    const text = authorMatch ? body.slice(authorMatch[0].length) : body;
-    nodes.push({
+    const cleanText = authorMatch ? body.slice(authorMatch[0].length) : body;
+    out.push({
       kind: "comment",
-      from: m.index,
-      to: m.index + raw.length,
+      from,
+      to: from + raw.length,
       raw,
-      text,
+      // Precedence: prefix author wins; else fall back to the legacy <Name>:.
+      metaAuthor: meta.author ?? authorName,
+      metaDate: meta.date,
+      metaAttrs: meta.attrs,
+      metaRaw: m[1],
+      innerFrom: bodyStart,
+      innerTo: bodyStart + body.length,
+      text: cleanText,
       authorName,
     });
   }
+  return out;
+}
+
+export function parse(source: string, options: ParseOptions = {}): ParseResult {
+  const skipCode = options.skipCode !== false;
+  const codeRegions = skipCode ? findCodeRegions(source) : [];
+  const nodes: CriticNode[] = collectCandidates(source);
 
   nodes.sort((a, b) => a.from - b.from);
 
   // Drop overlaps: a substitution match's interior could re-match as a smaller
-  // form. Keep the earliest-starting / longest node; discard anything fully
-  // contained by an already-accepted node. Also drop anything that falls
-  // inside a code region — CriticMarkup-looking text in code samples is
-  // literal, not real annotation.
+  // form, and a mark body may legitimately contain a nested mark. Keep the
+  // earliest-starting / longest node and discard anything fully contained by an
+  // already-accepted node — so a nested mark collapses into its outer mark's
+  // body (the inner is part of the added/deleted text), for prefixed and
+  // prefix-free marks alike. Under the quoted grammar a value can't hold a
+  // brace/quote/newline, so a prefixed mark can never straddle — no nesting
+  // guard is needed. Also drop anything inside a code region (CriticMarkup-
+  // looking text in code samples is literal, not real annotation).
   const accepted: CriticNode[] = [];
   let lastEnd = -1;
   for (const n of nodes) {
+    // nodes is already sorted by `from`.
     if (n.from < lastEnd) continue; // overlap with previous accepted node
     if (skipCode && rangeEndpointInCode(n.from, n.to, codeRegions)) continue;
     accepted.push(n);

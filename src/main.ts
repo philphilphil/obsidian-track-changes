@@ -11,7 +11,7 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import { applyEdits, rebaseEdits, type SourceEdit, type ReplyDateStyle } from "./operations";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import {
@@ -86,6 +86,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...stored,
+      // Coerce the persisted enum so a hand-edited / future-renamed value can't
+      // leak an invalid style downstream; anything but "datetime" means "date".
+      replyDateStyle: stored.replyDateStyle === "datetime" ? "datetime" : "date",
       finalize: { ...DEFAULT_SETTINGS.finalize, ...(stored.finalize ?? {}) },
     };
   }
@@ -108,6 +111,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       shouldOpenPanel: (event) =>
         this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      localAuthorName: () => this.settings.localAuthorName ?? "",
     });
   }
 
@@ -117,6 +121,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.editorExtensions.length = 0;
     this.editorExtensions.push(this.makeDecorationExtension());
     this.app.workspace.updateOptions();
+    this.getReviewView()?.rebuildCards();
+  }
+
+  /**
+   * Refresh every render surface after a settings change that affects display
+   * (e.g. localAuthorName). Re-runs reading-view post-processors and forces the
+   * open review panel to repaint so the "You"-fallback author/hue updates live.
+   */
+  refreshAfterSettingsChange(): void {
+    this.rerenderReadingViews();
     this.getReviewView()?.rebuildCards();
   }
 
@@ -143,6 +157,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       isFileOpen: (file) => this.findEditorForFile(file) !== null,
       confirmBeforeDelete: () => this.settings.confirmBeforeDelete,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      localAuthorName: () => this.settings.localAuthorName ?? "",
+      replyDateStyle: () => this.settings.replyDateStyle,
     };
     return new ReviewPanelView(leaf, host);
   }

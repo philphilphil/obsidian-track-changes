@@ -135,6 +135,10 @@ export class FinalizeModal extends Modal {
     if (s.substitutionsAccepted) lines.push(`Accept ${s.substitutionsAccepted} substitution(s).`);
     if (s.substitutionsRejected) lines.push(`Reject ${s.substitutionsRejected} substitution(s).`);
     if (s.highlights && this.opts.stripHighlights) lines.push(`Strip ${s.highlights} highlight(s).`);
+    if (s.highlights && !this.opts.stripHighlights)
+      lines.push(
+        `Keep ${s.highlights} highlight(s) verbatim — kept highlights retain their author/date metadata.`,
+      );
     const ul = el.createEl("ul");
     for (const line of lines) ul.createEl("li", { text: line });
   }

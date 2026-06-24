@@ -179,15 +179,40 @@ export function deleteThread(source: string, thread: Thread): SourceEdit {
 }
 
 /**
- * Insert a human reply adjacent to the last message of a thread. The reply
- * carries no `Claude:` prefix — the parser uses absence of the prefix as the
- * signal that this is from the user.
+ * Strip characters that could break the quoted metadata prefix or its
+ * rendering: control / line-separator chars (newline, NUL, U+2028/9) and the
+ * three structural chars the quoted-value class forbids \u2014 `"`, `{`, `}`.
+ * Everything else (spaces, `;`, `=`, `-`, \u2026) is safe inside the quotes, so a
+ * name like `J. O'Reilly-Smith, Jr.` survives intact.
+ */
+export function sanitizeAuthorName(name: string): string {
+  return name
+    .replace(/[\x00-\x1f\x7f\u2028\u2029]/g, "")
+    .replace(/["{}]/g, "");
+}
+
+export type ReplyDateStyle = "date" | "datetime";
+
+// Real-clock stamp. "date" → YYYY-MM-DD; "datetime" → second-precision UTC ISO.
+function formatReplyDate(style: ReplyDateStyle): string {
+  const iso = new Date().toISOString();
+  return style === "datetime" ? `${iso.slice(0, 19)}Z` : iso.slice(0, 10);
+}
+
+/**
+ * Insert a human reply adjacent to the last message of a thread, stamped with
+ * the new metadata prefix. The reply ALWAYS carries `date=<today>`; if
+ * `localAuthorName` is non-empty it also carries `author=<sanitized name>`
+ * (otherwise no `author=`, so the parser resolves it to "You"). `localAuthorName`
+ * is passed in from the panel/host — operations never reads settings directly.
  */
 export function appendReply(
   _source: string,
   thread: Thread,
   parsed: ParseResult,
   text: string,
+  localAuthorName = "",
+  dateStyle: ReplyDateStyle = "date",
 ): SourceEdit {
   const validationError = validateReplyText(text);
   if (validationError) throw new Error(validationError);
@@ -197,7 +222,13 @@ export function appendReply(
       ? thread.replyIndexes[thread.replyIndexes.length - 1]
       : thread.rootIndex;
   const last = parsed.nodes[lastIdx] as CommentNode;
-  const reply = `{>>${text}<<}`;
+
+  // Pairs are space-separated and the closing quote abuts the `>>` sigil — no
+  // trailing `;`. A reply with no author= (or the user's own name) is "You".
+  const date = formatReplyDate(dateStyle);
+  const author = sanitizeAuthorName((localAuthorName ?? "").trim());
+  const prefix = author ? `author="${author}" date="${date}"` : `date="${date}"`;
+  const reply = `{${prefix}>>${text}<<}`;
   // Insert with no whitespace so the threading parser groups it.
   return {
     from: last.to,

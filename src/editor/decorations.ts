@@ -16,6 +16,45 @@ export interface DecorationCallbacks {
   shouldOpenPanel: (event: MouseEvent) => boolean;
   /** Whether to highlight the changed characters inside a substitution. */
   highlightChangedChars: () => boolean;
+  /**
+   * The local user's display name (settings `localAuthorName`). Used as the
+   * author fallback when a mark carries no `author=` prefix and (for comments)
+   * no legacy `<Name>:`. Empty / unset falls through to the "You" sentinel.
+   */
+  localAuthorName?: () => string;
+}
+
+/**
+ * Resolve the display author for a node per the precedence chain (§5.2):
+ * metaAuthor → legacy authorName (comments only) → localAuthorName → "You".
+ * Returns the resolved label plus the underlying named author (null when it
+ * falls through to "You") so callers can decide whether to apply a hue.
+ */
+function resolveAuthor(
+  node: CriticNode,
+  localAuthorName: string,
+): { label: string; named: string | null } {
+  const legacy = node.kind === "comment" ? node.authorName : null;
+  const local = localAuthorName.trim();
+  const named = node.metaAuthor ?? legacy ?? (local !== "" ? local : null);
+  return { label: named ?? "You", named };
+}
+
+/** Tooltip text for a marked span: "author · date" (date omitted if absent). */
+function metaLabel(node: CriticNode, localAuthorName: string): string {
+  const { label } = resolveAuthor(node, localAuthorName);
+  return node.metaDate ? `${label} · ${node.metaDate}` : label;
+}
+
+/** Build the shared `attributes` object for a marked span. */
+function markAttrs(node: CriticNode, localAuthorName: string): Record<string, string> {
+  const attrs: Record<string, string> = {
+    "data-tc-offset": String(node.from),
+    title: metaLabel(node, localAuthorName),
+  };
+  const { named } = resolveAuthor(node, localAuthorName);
+  if (named) attrs["data-author-hue"] = String(authorHueIndex(named));
+  return attrs;
 }
 
 class ThreadChipWidget extends WidgetType {
@@ -111,11 +150,11 @@ class SubArrowWidget extends WidgetType {
   }
 }
 
-function threadTooltip(thread: Thread, nodes: CriticNode[]): string {
+function threadTooltip(thread: Thread, nodes: CriticNode[], localAuthorName: string): string {
   const ids = [thread.rootIndex, ...thread.replyIndexes];
   return ids
     .map((i) => nodes[i] as CommentNode)
-    .map((c) => `${c.authorName ?? "You"}: ${c.text.trim()}`)
+    .map((c) => `${resolveAuthor(c, localAuthorName).label}: ${c.text.trim()}`)
     .join("\n\n");
 }
 
@@ -130,6 +169,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
   const source = state.doc.toString();
   const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
+  const localAuthor = callbacks.localAuthorName ? callbacks.localAuthorName() : "";
 
   if (!state.field(editorLivePreviewField, false)) {
     // Source Mode: keep raw markup visible, but tint comments (per author) so
@@ -137,20 +177,33 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     // suppression CSS applies — otherwise Obsidian's `~~…~~` rendering draws
     // a line across `new` too, hiding what's being added.
     for (const n of parsed.nodes) {
+      const hue = resolveAuthor(n, localAuthor).named;
+      const tip = metaLabel(n, localAuthor);
+      const authorAttrs = (extra: Record<string, string> = {}): Record<string, string> => {
+        const a: Record<string, string> = { title: tip, ...extra };
+        if (hue) a["data-author-hue"] = String(authorHueIndex(hue));
+        return a;
+      };
       if (n.kind === "comment") {
-        const cls = n.authorName ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
-        builder.add(n.from, n.to, Decoration.mark({ class: cls }));
+        // Resolved author (honors author="…" + localAuthorName), not just the
+        // legacy <Name>: — `hue` above already holds resolveAuthor(n).named.
+        const cls = hue ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
+        builder.add(n.from, n.to, Decoration.mark({ class: cls, attributes: authorAttrs() }));
       } else if (n.kind === "addition") {
-        builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-addition" }));
+        builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-addition", attributes: authorAttrs() }));
       } else if (n.kind === "deletion") {
-        builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-deletion" }));
+        builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-deletion", attributes: authorAttrs() }));
+      } else if (n.kind === "highlight") {
+        builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-highlight", attributes: authorAttrs() }));
       } else if (n.kind === "substitution") {
-        const oldFrom = n.from + 3;
-        const oldTo = oldFrom + n.oldText.length;
+        // innerFrom/innerTo bound the `old` half; `new` runs from after `~>`
+        // to just before the closing `~~}` (always 3 chars, prefix-free).
+        const oldFrom = n.innerFrom;
+        const oldTo = n.innerTo;
         const newFrom = oldTo + 2;
         const newTo = n.to - 3;
-        builder.add(oldFrom, oldTo, Decoration.mark({ class: "tc-sub-raw-old" }));
-        builder.add(newFrom, newTo, Decoration.mark({ class: "tc-sub-raw-new" }));
+        builder.add(oldFrom, oldTo, Decoration.mark({ class: "tc-sub-raw-old", attributes: authorAttrs() }));
+        builder.add(newFrom, newTo, Decoration.mark({ class: "tc-sub-raw-new", attributes: authorAttrs() }));
       }
     }
     return builder.finish();
@@ -188,12 +241,15 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
       if (rangeTouchesSelection(state, t.from, t.to)) continue;
       const root = parsed.nodes[t.rootIndex] as CommentNode;
       const count = 1 + t.replyIndexes.length;
+      // Resolve the chip's named author through the precedence chain
+      // (author="…" → legacy <Name>: → localAuthorName) so prefix-attributed
+      // and local-user threads tint and label the same as the panel.
       const widget = new ThreadChipWidget(
         threadIndex,
         count,
-        root.authorName,
+        resolveAuthor(root, localAuthor).named,
         t.from,
-        threadTooltip(t, parsed.nodes),
+        threadTooltip(t, parsed.nodes, localAuthor),
         callbacks.onOpenPanel,
       );
       builder.add(
@@ -207,22 +263,23 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     const n = item.node;
 
     if (n.kind === "addition") {
-      const innerFrom = n.from + 3;
-      const innerTo = n.to - 3;
+      const innerFrom = n.innerFrom;
+      const innerTo = n.innerTo;
       const inRange = rangeTouchesSelection(state, n.from, n.to);
+      // Hide `{<prefix>++` up to the body — covers the prefix for free.
       if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
         innerFrom,
         innerTo,
         Decoration.mark({
           class: "tc-addition",
-          attributes: { "data-tc-offset": String(n.from) },
+          attributes: markAttrs(n, localAuthor),
         }),
       );
       if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
     } else if (n.kind === "deletion") {
-      const innerFrom = n.from + 3;
-      const innerTo = n.to - 3;
+      const innerFrom = n.innerFrom;
+      const innerTo = n.innerTo;
       const inRange = rangeTouchesSelection(state, n.from, n.to);
       if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
@@ -230,13 +287,15 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         innerTo,
         Decoration.mark({
           class: "tc-deletion",
-          attributes: { "data-tc-offset": String(n.from) },
+          attributes: markAttrs(n, localAuthor),
         }),
       );
       if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
     } else if (n.kind === "substitution") {
-      const oldFrom = n.from + 3;
-      const oldTo = oldFrom + n.oldText.length;
+      // innerFrom/innerTo bound the `old` half; `new` runs from after `~>`
+      // to just before the closing `~~}` (always 3 chars, prefix-free).
+      const oldFrom = n.innerFrom;
+      const oldTo = n.innerTo;
       const newFrom = oldTo + 2;
       const newTo = n.to - 3;
       const inRange = rangeTouchesSelection(state, n.from, n.to);
@@ -244,13 +303,14 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         const charRuns = callbacks.highlightChangedChars()
           ? diffChars(n.oldText, n.newText)
           : null;
+        // Hide `{<prefix>~~` (the prefix + open sigil) before `old`.
         builder.add(n.from, oldFrom, hiddenDecoration());
         builder.add(
           oldFrom,
           oldTo,
           Decoration.mark({
             class: "tc-sub-old",
-            attributes: { "data-tc-offset": String(n.from) },
+            attributes: markAttrs(n, localAuthor),
           }),
         );
         if (charRuns) {
@@ -282,7 +342,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
           newTo,
           Decoration.mark({
             class: "tc-sub-new",
-            attributes: { "data-tc-offset": String(n.from) },
+            attributes: markAttrs(n, localAuthor),
           }),
         );
         if (charRuns) {
@@ -308,7 +368,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
           oldTo,
           Decoration.mark({
             class: "tc-sub-raw-old",
-            attributes: { "data-tc-offset": String(n.from) },
+            attributes: markAttrs(n, localAuthor),
           }),
         );
         builder.add(
@@ -316,20 +376,21 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
           newTo,
           Decoration.mark({
             class: "tc-sub-raw-new",
-            attributes: { "data-tc-offset": String(n.from) },
+            attributes: markAttrs(n, localAuthor),
           }),
         );
       }
     } else if (n.kind === "highlight") {
-      const innerFrom = n.from + 3;
-      const innerTo = n.to - 3;
+      const innerFrom = n.innerFrom;
+      const innerTo = n.innerTo;
       const inRange = rangeTouchesSelection(state, n.from, n.to);
       if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
         innerFrom,
         innerTo,
         Decoration.mark({
-          attributes: { "data-tc-offset": String(n.from) },
+          class: "tc-highlight",
+          attributes: markAttrs(n, localAuthor),
         }),
       );
       if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
