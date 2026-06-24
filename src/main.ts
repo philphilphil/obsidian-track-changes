@@ -86,6 +86,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...stored,
+      // Coerce the persisted enum so a hand-edited / future-renamed value can't
+      // leak an invalid style downstream; anything but "datetime" means "date".
+      replyDateStyle: stored.replyDateStyle === "datetime" ? "datetime" : "date",
       finalize: { ...DEFAULT_SETTINGS.finalize, ...(stored.finalize ?? {}) },
     };
   }

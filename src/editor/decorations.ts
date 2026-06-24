@@ -150,11 +150,11 @@ class SubArrowWidget extends WidgetType {
   }
 }
 
-function threadTooltip(thread: Thread, nodes: CriticNode[]): string {
+function threadTooltip(thread: Thread, nodes: CriticNode[], localAuthorName: string): string {
   const ids = [thread.rootIndex, ...thread.replyIndexes];
   return ids
     .map((i) => nodes[i] as CommentNode)
-    .map((c) => `${c.authorName ?? "You"}: ${c.text.trim()}`)
+    .map((c) => `${resolveAuthor(c, localAuthorName).label}: ${c.text.trim()}`)
     .join("\n\n");
 }
 
@@ -185,7 +185,9 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         return a;
       };
       if (n.kind === "comment") {
-        const cls = n.authorName ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
+        // Resolved author (honors author="…" + localAuthorName), not just the
+        // legacy <Name>: — `hue` above already holds resolveAuthor(n).named.
+        const cls = hue ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
         builder.add(n.from, n.to, Decoration.mark({ class: cls, attributes: authorAttrs() }));
       } else if (n.kind === "addition") {
         builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-addition", attributes: authorAttrs() }));
@@ -239,12 +241,15 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
       if (rangeTouchesSelection(state, t.from, t.to)) continue;
       const root = parsed.nodes[t.rootIndex] as CommentNode;
       const count = 1 + t.replyIndexes.length;
+      // Resolve the chip's named author through the precedence chain
+      // (author="…" → legacy <Name>: → localAuthorName) so prefix-attributed
+      // and local-user threads tint and label the same as the panel.
       const widget = new ThreadChipWidget(
         threadIndex,
         count,
-        root.authorName,
+        resolveAuthor(root, localAuthor).named,
         t.from,
-        threadTooltip(t, parsed.nodes),
+        threadTooltip(t, parsed.nodes, localAuthor),
         callbacks.onOpenPanel,
       );
       builder.add(

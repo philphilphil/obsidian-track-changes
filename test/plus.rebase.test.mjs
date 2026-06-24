@@ -442,7 +442,8 @@ test("reply stamping: with localAuthorName => author= + date=; re-parses + rebas
   // date is the real clock, YYYY-MM-DD.
   const date = edit.insert.match(/date="(\d{4}-\d{2}-\d{2})"/)[1];
   assert.match(date, TODAY_RE);
-  assert.equal(date, new Date().toISOString().slice(0, 10));
+  // (No second `new Date()` read here — comparing two independent clock reads
+  // can disagree across a UTC-midnight boundary. The regex above is sufficient.)
   // The reply edit anchors on before=last.raw (now incl. its prefix); rebase in place.
   const rb = rebaseEdit(src, edit);
   assert.ok(rb !== null, "reply edit should rebase in place");

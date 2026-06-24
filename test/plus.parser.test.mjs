@@ -541,4 +541,36 @@ test("first occurrence of a duplicate key wins; empty values dropped", () => {
   assert.equal("date" in nodes[0].metaAttrs, false);
 });
 
+test("keys are lowercased on lookup; metaRaw preserves original casing", () => {
+  const { nodes } = parse('{Author="Claude" DATE="2026-06-14"++a++}');
+  assert.equal(nodes.length, 1);
+  assert.deepEqual(nodes[0].metaAttrs, { author: "Claude", date: "2026-06-14" });
+  assert.equal(nodes[0].metaAuthor, "Claude");
+  assert.equal(nodes[0].metaDate, "2026-06-14");
+  // metaRaw is the exact consumed prefix — original casing intact.
+  assert.equal(nodes[0].metaRaw, 'Author="Claude" DATE="2026-06-14"');
+});
+
+test("a tab may separate pairs (grammar is space/tab-separated)", () => {
+  const { nodes } = parse('{author="Claude"\tdate="2026-06-14"++a++}');
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].metaAuthor, "Claude");
+  assert.equal(nodes[0].metaDate, "2026-06-14");
+});
+
+test("an all-whitespace value is dropped from metaAttrs", () => {
+  const { nodes } = parse('{author="   "++a++}');
+  assert.equal(nodes.length, 1);
+  assert.deepEqual(nodes[0].metaAttrs, {});
+  assert.equal(nodes[0].metaAuthor, null);
+  assert.equal(nodes[0].text, "a");
+});
+
+test("value class admits ; = : together (no terminator regression)", () => {
+  const { nodes } = parse('{author="a;b=c:d"++x++}');
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].metaAuthor, "a;b=c:d");
+  assert.equal(nodes[0].text, "x");
+});
+
 console.log("done.");

@@ -95,8 +95,8 @@ export interface ParseResult {
 }
 
 // Optional metadata prefix between the outer `{` and the mark sigil: a run of
-// space-separated `key="value"` pairs, HTML-attribute flavored, with no leading
-// whitespace.
+// space/tab-separated `key="value"` pairs, HTML-attribute flavored, with no
+// leading whitespace.
 //   KEY = [A-Za-z][\w-]*     ASCII token, lowercased on lookup
 //   VAL = "[^"{}\n]*"         double-quoted; rich punctuation allowed, but `"`,
 //                             `{`, `}`, newline are forbidden inside the value.
@@ -104,11 +104,20 @@ export interface ParseResult {
 // (truncated/streamed AI output) can't swallow across a brace or line boundary,
 // so a malformed value fails to form a mark *locally* instead of straddling —
 // the role the old mandatory trailing `;` played.
-// PFX is a SINGLE capturing group so payload group indices stay fixed: prefix
-// m[1], body/oldText m[2], newText m[3]. PFX matches "" for prefix-free marks,
+
+/** One `key="value"` pair (no captures): the atom of the metadata-prefix grammar. */
+export const META_PAIR = '[A-Za-z][\\w-]*="[^"{}\\n]*"';
+/**
+ * Metadata prefix as a NON-capturing, optional source fragment — a run of
+ * space/tab-separated pairs. Exported as the single source of truth so the
+ * reading-view post-processor (src/reading.ts) matches this grammar byte-for-
+ * byte instead of re-declaring it.
+ */
+export const META_PREFIX_SRC = `(?:${META_PAIR}(?:[ \\t]+${META_PAIR})*[ \\t]*)?`;
+// PFX wraps it in a SINGLE capturing group so payload group indices stay fixed:
+// prefix m[1], body/oldText m[2], newText m[3]. Matches "" for prefix-free marks,
 // which then parse byte-identically to the legacy regexes.
-const PAIR = '[A-Za-z][\\w-]*="[^"{}\\n]*"';
-const PFX = `((?:${PAIR}(?:[ \\t]+${PAIR})*[ \\t]*)?)`;
+const PFX = `(${META_PREFIX_SRC})`;
 const COMMENT_RE = new RegExp(`\\{${PFX}>>([\\s\\S]*?)<<\\}`, "g");
 const ADDITION_RE = new RegExp(`\\{${PFX}\\+\\+([\\s\\S]*?)\\+\\+\\}`, "g");
 const DELETION_RE = new RegExp(`\\{${PFX}--([\\s\\S]*?)--\\}`, "g");
@@ -240,17 +249,16 @@ export interface ParseOptions {
   skipCode?: boolean;
 }
 
-// Run the five regexes over `text` and return candidate nodes with offsets
-// shifted by `base` (so a re-scan of a dropped straddle's interior maps back to
-// absolute document offsets). Group indices are fixed: prefix = m[1]; body /
-// oldText = m[2]; newText = m[3]. The prefix occupies `{` + metaRaw; the sigil
-// follows. innerFrom/innerTo bound the payload, excluding the prefix and sigils.
-function collectCandidates(text: string, base: number): CriticNode[] {
+// Run the five regexes over `text` and return candidate nodes. Group indices
+// are fixed: prefix = m[1]; body / oldText = m[2]; newText = m[3]. The prefix
+// occupies `{` + metaRaw; the sigil follows. innerFrom/innerTo bound the
+// payload, excluding the prefix and sigils.
+function collectCandidates(text: string): CriticNode[] {
   const out: CriticNode[] = [];
   // Substitutions first — their {~~...~~} could otherwise be confused with highlights.
   for (const m of text.matchAll(SUBSTITUTION_RE)) {
     const meta = parseMetaPrefix(m[1]);
-    const from = base + m.index;
+    const from = m.index;
     const innerFrom = from + 1 + m[1].length + 2; // {<prefix>~~
     out.push({
       kind: "substitution",
@@ -269,7 +277,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
   }
   for (const m of text.matchAll(ADDITION_RE)) {
     const meta = parseMetaPrefix(m[1]);
-    const from = base + m.index;
+    const from = m.index;
     const innerFrom = from + 1 + m[1].length + 2; // {<prefix>++
     out.push({
       kind: "addition",
@@ -287,7 +295,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
   }
   for (const m of text.matchAll(DELETION_RE)) {
     const meta = parseMetaPrefix(m[1]);
-    const from = base + m.index;
+    const from = m.index;
     const innerFrom = from + 1 + m[1].length + 2; // {<prefix>--
     out.push({
       kind: "deletion",
@@ -305,7 +313,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
   }
   for (const m of text.matchAll(HIGHLIGHT_RE)) {
     const meta = parseMetaPrefix(m[1]);
-    const from = base + m.index;
+    const from = m.index;
     const innerFrom = from + 1 + m[1].length + 2; // {<prefix>==
     out.push({
       kind: "highlight",
@@ -325,7 +333,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
     const raw = m[0];
     const meta = parseMetaPrefix(m[1]);
     const body = m[2];
-    const from = base + m.index;
+    const from = m.index;
     const bodyStart = from + 1 + m[1].length + 2; // {<prefix>>>
     // Strip a legacy <Name>: from the body text regardless of metaAuthor; the
     // prefix author wins for attribution, the legacy capture is kept on
@@ -355,7 +363,7 @@ function collectCandidates(text: string, base: number): CriticNode[] {
 export function parse(source: string, options: ParseOptions = {}): ParseResult {
   const skipCode = options.skipCode !== false;
   const codeRegions = skipCode ? findCodeRegions(source) : [];
-  const nodes: CriticNode[] = collectCandidates(source, 0);
+  const nodes: CriticNode[] = collectCandidates(source);
 
   nodes.sort((a, b) => a.from - b.from);
 
@@ -368,11 +376,10 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   // brace/quote/newline, so a prefixed mark can never straddle — no nesting
   // guard is needed. Also drop anything inside a code region (CriticMarkup-
   // looking text in code samples is literal, not real annotation).
-  const pending = nodes; // already sorted by `from`
   const accepted: CriticNode[] = [];
   let lastEnd = -1;
-  while (pending.length > 0) {
-    const n = pending.shift() as CriticNode;
+  for (const n of nodes) {
+    // nodes is already sorted by `from`.
     if (n.from < lastEnd) continue; // overlap with previous accepted node
     if (skipCode && rangeEndpointInCode(n.from, n.to, codeRegions)) continue;
     accepted.push(n);

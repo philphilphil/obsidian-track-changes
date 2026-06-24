@@ -22,6 +22,7 @@
 import { setIcon, setTooltip, type MarkdownPostProcessorContext } from "obsidian";
 import {
   parse,
+  META_PREFIX_SRC,
   type ParseResult,
   type CriticNode,
   type CommentNode,
@@ -44,13 +45,18 @@ export interface ReadingOptions {
   localAuthorName?: string;
 }
 
-// Source-level metadata prefix between the outer `{` and the mark sigil — must
-// match the parser's grammar (src/parser.ts PFX). A run of space-separated
-// `key="value"` pairs, no leading whitespace; the quoted VAL forbids `"`, `{`,
-// `}` and newline. Used to recognise — and strip — the prefix in the rendered
-// DOM, where it survives as literal text (it's not markdown).
-const PFX_SRC =
-  '(?:[A-Za-z][\\w-]*="[^"{}\\n]*"(?:[ \\t]+[A-Za-z][\\w-]*="[^"{}\\n]*")*[ \\t]*)?';
+// Source-level metadata prefix between the outer `{` and the mark sigil. Shared
+// verbatim with the parser (src/parser.ts META_PREFIX_SRC) so the two can never
+// drift. Used to recognise — and strip — the prefix in the rendered DOM, where
+// it survives as literal text.
+//
+// LIMITATION: the value class permits markdown-significant characters (e.g.
+// `author="**Claude**"`). When a value contains markdown, Obsidian renders it
+// and splits the `{<prefix><sigil>` run across several DOM text nodes/inline
+// elements; the single-text-node strippers below then can't match it, so such a
+// prefix may leak into the rendered preview. Plain `author`/`date` values (the
+// documented norm) are unaffected.
+const PFX_SRC = META_PREFIX_SRC;
 // `{` + optional prefix + a 2-char open sigil, anchored at the search start.
 const OPEN_WITH_PREFIX = new RegExp(`^\\{${PFX_SRC}(?:\\+\\+|--|>>|~~|==)`);
 // `{` + optional prefix anchored to end-of-text (for cleanBraceWrapped, where
