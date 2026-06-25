@@ -376,9 +376,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       // user clicks the same card twice in quick succession.
       void chip.offsetWidth;
       chip.addClass("tc-chip-flash");
-      this.registerInterval(
-        window.setTimeout(() => chip.removeClass("tc-chip-flash"), 1500),
-      );
+      const timer = window.setTimeout(() => chip.removeClass("tc-chip-flash"), 1500);
+      this.register(() => window.clearTimeout(timer));
     });
   }
 
