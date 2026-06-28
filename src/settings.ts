@@ -68,6 +68,8 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    new Setting(containerEl).setName("Editing & display").setHeading();
+
     new Setting(containerEl)
       .setName("Show comments in reading view")
       .setDesc(
@@ -129,6 +131,8 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl).setName("Identity").setHeading();
 
     new Setting(containerEl)
       .setName("Your name")
