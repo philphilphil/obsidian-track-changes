@@ -6,7 +6,7 @@
 // Run with: node test/parser.invariants.test.mjs
 //
 // Coverage map:
-//   A  node.raw is the verbatim source slice for all five kinds (the anchor
+//   A  node.raw is the verbatim source slice for all six kinds (the anchor
 //      contract — edits slice raw out of the document by [from, to))
 //   B  parse().nodes are sorted and non-overlapping after the dedup pass
 //   C  delete / substitution bodies with newlines or blank lines stay ONE node
@@ -16,6 +16,8 @@
 //      metaAuthor / metaDate, and a malformed prefix fails locally
 //   F  legacy {>>Name: ..<<} author prefix still parses (back-compat)
 //   G  markup whose endpoints sit inside a code region is inert (boundary seam)
+//   H  AI-added text {=+..+=} is the sixth kind: same raw / dedup / metadata
+//      contracts, but visual-only — never a thread participant
 
 import { strict as assert } from "node:assert";
 import { fileURLToPath } from "node:url";
@@ -54,18 +56,19 @@ function test(name, fn) {
 
 console.log("parser.invariants:");
 
-// A. node.raw is the verbatim source slice across all five kinds.
-test("A node.raw is the verbatim source slice for all 5 kinds", () => {
+// A. node.raw is the verbatim source slice across all six kinds.
+test("A node.raw is the verbatim source slice for all 6 kinds", () => {
   const src =
-    "{++add++} {--del--} {~~old~>new~~} {>>Bob: comment<<} {==highlight==}";
+    "{++add++} {--del--} {~~old~>new~~} {>>Bob: comment<<} {==highlight==} {=+aitext+=}";
   const r = parse(src);
-  assert.equal(r.nodes.length, 5);
+  assert.equal(r.nodes.length, 6);
   const byKind = Object.fromEntries(r.nodes.map((n) => [n.kind, n]));
   assert.equal(byKind.addition.raw, "{++add++}");
   assert.equal(byKind.deletion.raw, "{--del--}");
   assert.equal(byKind.substitution.raw, "{~~old~>new~~}");
   assert.equal(byKind.comment.raw, "{>>Bob: comment<<}");
   assert.equal(byKind.highlight.raw, "{==highlight==}");
+  assert.equal(byKind.aitext.raw, "{=+aitext+=}");
   // raw must always equal the slice it claims to span — the anchor contract.
   for (const n of r.nodes) {
     assert.equal(n.raw, src.slice(n.from, n.to), `${n.kind} raw != slice`);
@@ -313,4 +316,46 @@ test("G marker riding the fence's opening line is inert; real prose after the cl
   const r = parse("```js {++fake++}\ncode\n```\n{++real++}");
   assert.equal(r.nodes.length, 1);
   assert.equal(r.nodes[0].text, "real");
+});
+
+// H. AI-added text ({=+..+=}) is the sixth parse() kind: a visual-only mark.
+// It obeys the same raw-slice and dedup contracts as the other kinds and
+// carries the metadata prefix, but is NEVER a thread participant (no review
+// card) — pin that so a future change can't quietly give it thread semantics.
+test("H aitext is the 6th kind; raw is the verbatim slice and sigils strip", () => {
+  const src = "{=+ai text+=}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  const n = r.nodes[0];
+  assert.equal(n.kind, "aitext");
+  assert.equal(n.text, "ai text", "sigils must strip from the payload");
+  assert.equal(n.raw, src.slice(n.from, n.to), "aitext raw != slice");
+});
+
+test("H aitext carries the metadata prefix like the other kinds", () => {
+  const r = parse('{author="Claude"=+x+=}');
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].kind, "aitext");
+  assert.equal(r.nodes[0].metaAuthor, "Claude");
+  assert.equal(r.nodes[0].text, "x");
+});
+
+test("H aitext is never a thread participant (nodeThread -1, no thread)", () => {
+  const r = parse("{=+inserted+=}");
+  assert.equal(r.threads.length, 0);
+  assert.equal(r.nodeThread[0], -1);
+});
+
+test("H an aitext mark between two comments SPLITS them (gap isn't whitespace)", () => {
+  const r = parse("{>>a<<} {=+x+=} {>>b<<}");
+  assert.equal(r.threads.length, 2, "non-whitespace between comments must not group them");
+  const ai = r.nodes.findIndex((n) => n.kind === "aitext");
+  assert.equal(r.nodeThread[ai], -1);
+});
+
+test("H a nested mark inside an aitext body collapses into it (dedup), no thread", () => {
+  const r = parse("{=+outer {>>inner<<} text+=}");
+  assert.equal(r.nodes.length, 1, "the inner comment must not survive dedup");
+  assert.equal(r.nodes[0].kind, "aitext");
+  assert.equal(r.threads.length, 0, "the swallowed comment must not form a thread");
 });
