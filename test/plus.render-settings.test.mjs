@@ -48,7 +48,8 @@ const obsidianStub = {
         "export class Setting {\n" +
         "  setName(){return this;} setDesc(){return this;} setHeading(){return this;}\n" +
         "  addToggle(){return this;} addText(){return this;} addDropdown(){return this;}\n" +
-        "}\n",
+        "}\n" +
+        "export function debounce(fn){ const d = (...a) => fn(...a); d.cancel = () => d; return d; }\n",
       loader: "js",
     }));
   },
