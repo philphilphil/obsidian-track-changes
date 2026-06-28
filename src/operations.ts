@@ -200,10 +200,19 @@ export function sanitizeAuthorName(name: string): string {
 
 export type ReplyDateStyle = "date" | "datetime";
 
-// Real-clock stamp. "date" → YYYY-MM-DD; "datetime" → second-precision UTC ISO.
+// Real-clock stamp. "date" → YYYY-MM-DD (local); "datetime" → second-precision
+// UTC ISO. The bare "date" form has no zone marker, so it reflects the user's
+// local calendar day — UTC would read a day ahead in negative-offset zones near
+// midnight. "datetime" keeps Z because it carries an explicit zone.
 function formatReplyDate(style: ReplyDateStyle): string {
-  const iso = new Date().toISOString();
-  return style === "datetime" ? `${iso.slice(0, 19)}Z` : iso.slice(0, 10);
+  const d = new Date();
+  if (style === "datetime") {
+    return `${d.toISOString().slice(0, 19)}Z`;
+  }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**

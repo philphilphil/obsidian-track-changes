@@ -39,6 +39,14 @@ const {
   DEFAULT_FINALIZE,
 } = ops;
 
+// Local calendar day (YYYY-MM-DD), mirroring formatReplyDate's "date" style.
+// Must use local getFullYear/getMonth/getDate, not toISOString (UTC) — west of
+// UTC in the evening the two differ by a day and the assertion goes flaky.
+function localDay() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function test(name, fn) {
   try {
     fn();
@@ -128,7 +136,7 @@ test("deleteThread removes all messages", () => {
 test("appendReply inserts adjacent with a date= prefix", () => {
   // Spec §7.4: replies the plugin writes ALWAYS stamp date=<today>; with an
   // empty localAuthorName there is no author= (resolves to "You").
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   const src = "x {>>Claude: a<<} y";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "thanks");
@@ -144,7 +152,7 @@ test("appendReply inserts adjacent with a date= prefix", () => {
 });
 
 test("appendReply attaches after the last message of an existing thread", () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   const src = "x {>>Claude: a<<}{>>ignore<<} y";
   const r = parse(src);
   const edit = appendReply(src, r.threads[0], r, "actually no");

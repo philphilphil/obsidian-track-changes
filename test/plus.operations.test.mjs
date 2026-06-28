@@ -52,7 +52,13 @@ function test(name, fn) {
   }
 }
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// Local calendar day (YYYY-MM-DD), mirroring formatReplyDate's "date" style.
+// Must use local getFullYear/getMonth/getDate, not toISOString (UTC) — west of
+// UTC in the evening the two differ by a day and the assertion goes flaky.
+const TODAY = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+})();
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Parse exactly one node and return it, asserting the count.
