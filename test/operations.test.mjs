@@ -34,6 +34,7 @@ const {
   deleteCommentNode,
   deleteThread,
   removeHighlight,
+  removeAiText,
   finalizeEdits,
   DEFAULT_FINALIZE,
 } = ops;
@@ -98,6 +99,16 @@ test("removeHighlight strips the wrapper and keeps the text", () => {
   const r = parse(src);
   const out = applyEdits(src, [removeHighlight(r.nodes[0])]);
   assert.equal(out, "x look here y");
+});
+
+test("removeAiText strips the wrapper and keeps the text", () => {
+  const src = "x {=+added here+=} y";
+  const r = parse(src);
+  const edit = removeAiText(r.nodes[0]);
+  assert.equal(edit.expected, "{=+added here+=}");
+  assert.equal(edit.insert, "added here");
+  const out = applyEdits(src, [edit]);
+  assert.equal(out, "x added here y");
 });
 
 test("deleteCommentNode removes one message of a thread", () => {

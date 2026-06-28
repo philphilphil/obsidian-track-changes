@@ -53,6 +53,7 @@ test("empty document → 0 edits, all-zero summary", () => {
     substitutionsAccepted: 0,
     substitutionsRejected: 0,
     highlights: 0,
+    aiText: 0,
   });
 });
 
@@ -82,6 +83,34 @@ test("only highlights, stripHighlights: true → strips wrappers, keeps text", (
   assert.equal(edits.length, 2);
   const out = applyEdits(src, edits);
   assert.equal(out, "a one b two c");
+});
+
+test("only AI-added text, stripAiText: false → 0 edits, counted", () => {
+  const src = "a {=+one+=} b {=+two+=} c";
+  const r = parse(src);
+  const opts = { ...DEFAULT_FINALIZE, stripAiText: false };
+  const edits = finalizeEdits(r, opts);
+  assert.equal(edits.length, 0);
+  const s = summarizeFinalize(r, opts);
+  assert.equal(s.aiText, 2);
+});
+
+test("only AI-added text, stripAiText: true → strips wrappers, keeps text", () => {
+  const src = "a {=+one+=} b {=+two+=} c";
+  const r = parse(src);
+  const opts = { ...DEFAULT_FINALIZE, stripAiText: true };
+  const edits = finalizeEdits(r, opts);
+  assert.equal(edits.length, 2);
+  const out = applyEdits(src, edits);
+  assert.equal(out, "a one b two c");
+});
+
+test("DEFAULT_FINALIZE strips AI-added text by default", () => {
+  assert.equal(DEFAULT_FINALIZE.stripAiText, true);
+  const src = "keep {=+ added +=} this";
+  const r = parse(src);
+  const out = applyEdits(src, finalizeEdits(r, DEFAULT_FINALIZE));
+  assert.equal(out, "keep  added  this");
 });
 
 test("mixed document, all-accept → expected final string", () => {

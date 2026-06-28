@@ -6,6 +6,7 @@
 //   {--text--}        deletion
 //   {~~old~>new~~}    substitution
 //   {==text==}        highlight (review-panel card offers "Remove highlight")
+//   {=+text+=}        AI-added text (visual-only rainbow mark; no panel card)
 //
 // Thread rule: consecutive {>>...<<} blocks with only inline whitespace
 // (no blank line) between them in the same paragraph form a thread.
@@ -13,7 +14,7 @@
 
 import { AUTHOR_RE } from "./authors";
 
-export type NodeKind = "comment" | "addition" | "deletion" | "substitution" | "highlight";
+export type NodeKind = "comment" | "addition" | "deletion" | "substitution" | "highlight" | "aitext";
 
 export interface BaseNode {
   kind: NodeKind;
@@ -70,12 +71,19 @@ export interface HighlightNode extends BaseNode {
   text: string;
 }
 
+/** AI-added text: a visual-only mark (rainbow highlight, no review card). */
+export interface AitextNode extends BaseNode {
+  kind: "aitext";
+  text: string;
+}
+
 export type CriticNode =
   | CommentNode
   | AdditionNode
   | DeletionNode
   | SubstitutionNode
-  | HighlightNode;
+  | HighlightNode
+  | AitextNode;
 
 export interface Thread {
   /** indexes into the parsed comments array */
@@ -123,6 +131,7 @@ const ADDITION_RE = new RegExp(`\\{${PFX}\\+\\+([\\s\\S]*?)\\+\\+\\}`, "g");
 const DELETION_RE = new RegExp(`\\{${PFX}--([\\s\\S]*?)--\\}`, "g");
 const SUBSTITUTION_RE = new RegExp(`\\{${PFX}~~([\\s\\S]*?)~>([\\s\\S]*?)~~\\}`, "g");
 const HIGHLIGHT_RE = new RegExp(`\\{${PFX}==([\\s\\S]*?)==\\}`, "g");
+const AITEXT_RE = new RegExp(`\\{${PFX}=\\+([\\s\\S]*?)\\+=\\}`, "g");
 
 interface MetaPrefix {
   attrs: Record<string, string>;
@@ -317,6 +326,24 @@ function collectCandidates(text: string): CriticNode[] {
     const innerFrom = from + 1 + m[1].length + 2; // {<prefix>==
     out.push({
       kind: "highlight",
+      from,
+      to: from + m[0].length,
+      raw: m[0],
+      metaAuthor: meta.author,
+      metaDate: meta.date,
+      metaAttrs: meta.attrs,
+      metaRaw: m[1],
+      innerFrom,
+      innerTo: innerFrom + m[2].length,
+      text: m[2],
+    });
+  }
+  for (const m of text.matchAll(AITEXT_RE)) {
+    const meta = parseMetaPrefix(m[1]);
+    const from = m.index;
+    const innerFrom = from + 1 + m[1].length + 2; // {<prefix>=+
+    out.push({
+      kind: "aitext",
       from,
       to: from + m[0].length,
       raw: m[0],

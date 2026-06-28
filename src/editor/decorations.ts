@@ -195,6 +195,9 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-deletion", attributes: authorAttrs() }));
       } else if (n.kind === "highlight") {
         builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-highlight", attributes: authorAttrs() }));
+      } else if (n.kind === "aitext") {
+        // Visual-only mark: tint the body, no author hue (rainbow replaces it).
+        builder.add(n.innerFrom, n.innerTo, Decoration.mark({ class: "tc-aitext", attributes: { title: tip } }));
       } else if (n.kind === "substitution") {
         // innerFrom/innerTo bound the `old` half; `new` runs from after `~>`
         // to just before the closing `~~}` (always 3 chars, prefix-free).
@@ -391,6 +394,22 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         Decoration.mark({
           class: "tc-highlight",
           attributes: markAttrs(n, localAuthor),
+        }),
+      );
+      if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());
+    } else if (n.kind === "aitext") {
+      const innerFrom = n.innerFrom;
+      const innerTo = n.innerTo;
+      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
+      builder.add(
+        innerFrom,
+        innerTo,
+        Decoration.mark({
+          // Visual-only: no data-tc-offset (no panel card to open) and no
+          // author hue — the rainbow style replaces the per-author tint.
+          class: "tc-aitext",
+          attributes: { title: metaLabel(n, localAuthor) },
         }),
       );
       if (!inRange) builder.add(innerTo, n.to, hiddenDecoration());

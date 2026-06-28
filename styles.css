@@ -140,6 +140,21 @@
 .tc-highlight {
   background: rgba(252, 211, 77, 0.30);
 }
+/* AI-added text: a two-colour "sunset" gradient on the glyphs (orange → violet).
+   A solid fallback colour keeps the text visible if background-clip is
+   unsupported; the @supports rule only goes transparent where the clip works.
+   Swap the two stops below to retune the colours. */
+.tc-aitext {
+  color: var(--text-normal);
+  background-image: linear-gradient(90deg, #f97316, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .tc-aitext {
+    -webkit-text-fill-color: transparent;
+  }
+}
 .tc-sub-old {
   text-decoration: line-through;
   background: rgba(220, 38, 38, 0.06);
