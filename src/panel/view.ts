@@ -107,6 +107,12 @@ export class ReviewPanelView extends ItemView {
   // newer one started while it was awaiting the file read, and bail before
   // touching the DOM — otherwise overlapping refreshes append duplicate cards.
   private refreshSeq = 0;
+  // Single in-flight card-flash (focusOffset). Held on the instance so repeated
+  // clicks reuse one timer instead of registering a fresh disposer each call —
+  // per-call disposers accumulate on the component lifecycle and retain card
+  // refs until unload. One disposer, registered in onOpen, clears it.
+  private flashTimer: number | null = null;
+  private flashedCard: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, host: PanelHost) {
     super(leaf);
@@ -135,6 +141,7 @@ export class ReviewPanelView extends ItemView {
         }
       }),
     );
+    this.register(() => this.clearFlash());
     this.onActiveFileChanged();
   }
 
@@ -150,11 +157,27 @@ export class ReviewPanelView extends ItemView {
     );
     if (card) {
       card.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Cancel any prior flash before starting a new one — only one card
+      // flashes at a time, so we reuse a single timer slot.
+      this.clearFlash();
       card.addClass("tc-card-flash");
-      this.registerInterval(
-        window.setTimeout(() => card.removeClass("tc-card-flash"), 1200),
-      );
+      this.flashedCard = card;
+      this.flashTimer = window.setTimeout(() => {
+        card.removeClass("tc-card-flash");
+        this.flashTimer = null;
+        this.flashedCard = null;
+      }, 1200);
     }
+  }
+
+  /** Cancel the in-flight card-flash timer and clear its highlight, if any. */
+  private clearFlash(): void {
+    if (this.flashTimer !== null) {
+      window.clearTimeout(this.flashTimer);
+      this.flashTimer = null;
+    }
+    this.flashedCard?.removeClass("tc-card-flash");
+    this.flashedCard = null;
   }
 
   private onActiveFileChanged(): void {
