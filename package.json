@@ -11,7 +11,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "typecheck": "tsc -noEmit -skipLibCheck",
-    "test": "node test/parser.test.mjs && node test/parser.edge.test.mjs && node test/operations.test.mjs && node test/finalize.test.mjs && node test/rebase.test.mjs && node test/authors.test.mjs && node test/reading-plan.test.mjs && node test/diff.test.mjs && node test/plus.parser.test.mjs && node test/plus.operations.test.mjs && node test/plus.rebase.test.mjs && node test/plus.finalize.test.mjs && node test/plus.render-settings.test.mjs && node test/plus.fixes.test.mjs"
+    "test": "node test/parser.test.mjs && node test/parser.edge.test.mjs && node test/parser.invariants.test.mjs && node test/operations.test.mjs && node test/finalize.test.mjs && node test/rebase.test.mjs && node test/authors.test.mjs && node test/reading-plan.test.mjs && node test/diff.test.mjs && node test/plus.parser.test.mjs && node test/plus.operations.test.mjs && node test/plus.rebase.test.mjs && node test/plus.finalize.test.mjs && node test/plus.render-settings.test.mjs && node test/plus.fixes.test.mjs"
   },
   "keywords": [],
   "author": "philphilphil",
