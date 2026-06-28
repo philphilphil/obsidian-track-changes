@@ -92,6 +92,16 @@ export class FinalizeModal extends Modal {
         }),
       );
 
+    new Setting(contentEl)
+      .setName("Strip AI-added text")
+      .setDesc("Remove {=+…+=} markers, keep their content.")
+      .addToggle((t) =>
+        t.setValue(this.opts.stripAiText).onChange((v) => {
+          this.opts.stripAiText = v;
+          this.refreshSummary();
+        }),
+      );
+
     new Setting(contentEl).setName("Summary").setHeading();
     const summaryEl = contentEl.createDiv({ cls: "tc-finalize-summary" });
     this.renderSummary(summaryEl);
@@ -139,6 +149,9 @@ export class FinalizeModal extends Modal {
       lines.push(
         `Keep ${s.highlights} highlight(s) verbatim — kept highlights retain their author/date metadata.`,
       );
+    if (s.aiText && this.opts.stripAiText) lines.push(`Strip ${s.aiText} AI-added text mark(s).`);
+    if (s.aiText && !this.opts.stripAiText)
+      lines.push(`Keep ${s.aiText} AI-added text mark(s) verbatim.`);
     const ul = el.createEl("ul");
     for (const line of lines) ul.createEl("li", { text: line });
   }

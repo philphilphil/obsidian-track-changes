@@ -32,15 +32,19 @@ Guidance:
 - Don't modify the surrounding text. Insert markup only.
 - **Comments are the default.** Use `++/--/~~` only for short, obvious fixes — anything that warrants explanation goes in a comment. Use `==` sparingly, only when you can't form a useful comment. A bare suggestion or highlight without rationale is noise.
 
+### AI-added text (`{=+ … +=}`) — not a review mark
+
+A sixth mark, `{author="Claude"=+inserted text+=}`, flags prose **you inserted** into the document — it renders as a subtle rainbow highlight, has no review card, and is never accepted or rejected (the user edits it in or strips it at publish). It exists for a *co-writing / drafting* mode and is **outside strict review**: don't emit it while reviewing (the hard rules above still forbid generating prose). Only use it when the user explicitly asks you to draft or insert inline text. The `author=`/`date=` prefix works on it exactly like the other marks.
+
 ## Attribution prefix
 
 Put `author="<your model name>"` on **every** mark you create, and keep one name (`Claude`, `GPT`, `Gemini`, …) throughout a document.
 
-The prefix is one or more `key="value"` pairs placed **between the outer `{` and the sigil** (`++`, `--`, `~~`, `>>`, `==`):
+The prefix is one or more `key="value"` pairs placed **between the outer `{` and the sigil** (`++`, `--`, `~~`, `>>`, `==`, `=+`):
 
 - values are **double-quoted**, pairs are **space-separated**, keys are **lowercase**, there is **no leading whitespace** after the `{`, and the closing quote of the last pair **abuts the sigil**.
 - a value **may not contain `"`, `{`, `}`, or a newline** (everything else — spaces, `;`, `=`, `:`, `-`, `.`, `,`, `'` — is fine). An unclosed quote (`{author="Claude++x++}`) doesn't parse and is left as literal text.
-- it works **uniformly on all five marks**.
+- it works **uniformly on all six marks**.
 
 ```
 {author="Claude" date="2026-06-14"++added text++}

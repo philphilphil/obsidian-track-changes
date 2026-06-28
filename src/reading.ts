@@ -58,7 +58,10 @@ export interface ReadingOptions {
 // documented norm) are unaffected.
 const PFX_SRC = META_PREFIX_SRC;
 // `{` + optional prefix + a 2-char open sigil, anchored at the search start.
-const OPEN_WITH_PREFIX = new RegExp(`^\\{${PFX_SRC}(?:\\+\\+|--|>>|~~|==)`);
+const OPEN_WITH_PREFIX = new RegExp(`^\\{${PFX_SRC}(?:\\+\\+|--|>>|~~|==|=\\+)`);
+// `{` + optional prefix + the AI-text open sigil `=+`, anchored at end-of-text —
+// strips the open token off the text node left behind before the wrapped span.
+const OPEN_AITEXT_AT_END = new RegExp(`\\{${PFX_SRC}=\\+$`);
 // `{` + optional prefix anchored to end-of-text (for cleanBraceWrapped, where
 // the wrapper element ate the `==`/`~~` sigil and only `{<prefix>` is in text).
 const OPEN_PREFIX_AT_END = new RegExp(`\\{${PFX_SRC}$`);
@@ -168,10 +171,24 @@ function applyToSection(
 }
 
 function handleFullyInterior(el: HTMLElement, node: CriticNode): void {
+  // AI-added text spanning multiple blocks: this interior section is all body —
+  // wrap it so the rainbow style carries across paragraphs.
+  if (node.kind === "aitext") {
+    wrapAllChildren(el);
+    return;
+  }
   // Addition body or highlighted body: render the section as-is.
   // Deletion / comment / substitution: nothing of this section should appear.
   if (node.kind === "addition" || node.kind === "highlight") return;
   el.addClass("tc-rm-hidden");
+}
+
+/** Wrap all of `el`'s children in a `tc-aitext` span (whole-section AI body). */
+function wrapAllChildren(el: HTMLElement): void {
+  const span = el.ownerDocument.createElement("span");
+  span.className = "tc-aitext";
+  while (el.firstChild) span.appendChild(el.firstChild);
+  el.appendChild(span);
 }
 
 function locateAll(
@@ -301,6 +318,7 @@ function closeLiteral(kind: CriticNode["kind"]): string {
     case "substitution": return "~~}";
     case "comment": return "<<}";
     case "highlight": return "==}";
+    case "aitext": return "+=}";
   }
 }
 
@@ -436,6 +454,10 @@ function applyLocated(
       if (openRange) deleteRange(doc, openRange);
       return;
     }
+    case "aitext": {
+      wrapAiText(doc, el, openRange ?? null, closeRange ?? null);
+      return;
+    }
     case "deletion": {
       removeSpan(doc, el, openRange ?? null, closeRange ?? null);
       return;
@@ -527,6 +549,66 @@ function unwrapElement(el: Element): void {
   if (!parent) return;
   while (el.firstChild) parent.insertBefore(el.firstChild, el);
   parent.removeChild(el);
+}
+
+/**
+ * AI-added text: strip the `{=+`/`+=}` sigils but wrap the body in a styled span
+ * so the rainbow mark survives into reading view. The body is `[start, end)`
+ * where each endpoint is the inner edge of its sigil — or the section edge when
+ * that sigil lives in another section (open-only / close-only spans, mirroring
+ * the substitution partial-range handling). After `surroundContents`, the sigils
+ * sit in the text nodes immediately around the span, so we strip them relative to
+ * the span (robust against the node-splitting that invalidates stale offsets).
+ * If the body can't be surrounded (it crosses a partially-selected element),
+ * fall back to a plain token strip — unstyled but clean. The located ranges stay
+ * valid because `surroundContents` validates before it mutates.
+ */
+function wrapAiText(
+  doc: Document,
+  el: HTMLElement,
+  openRange: DomRange | null,
+  closeRange: DomRange | null,
+): void {
+  const start = openRange ? openRange.end : startOfElement(el);
+  const end = closeRange ? closeRange.start : endOfElement(el);
+  const stripTokens = (): void => {
+    if (closeRange) deleteRange(doc, closeRange);
+    if (openRange) deleteRange(doc, openRange);
+  };
+  if (!start || !end) {
+    stripTokens();
+    return;
+  }
+  const span = doc.createElement("span");
+  span.className = "tc-aitext";
+  const body = doc.createRange();
+  body.setStart(start.node, start.offset);
+  body.setEnd(end.node, end.offset);
+  try {
+    body.surroundContents(span);
+  } catch {
+    stripTokens();
+    return;
+  }
+  if (openRange) stripTrailingMatch(span.previousSibling, OPEN_AITEXT_AT_END);
+  if (closeRange) stripLeadingLiteral(span.nextSibling, "+=}");
+}
+
+/** Strip a trailing regex match (the open sigil) off a text node, if present. */
+function stripTrailingMatch(node: ChildNode | null, re: RegExp): void {
+  if (!node || node.nodeType !== 3) return;
+  const t = node as Text;
+  const text = t.nodeValue ?? "";
+  const m = re.exec(text);
+  if (m) t.nodeValue = text.slice(0, m.index);
+}
+
+/** Strip a leading literal token (the close sigil) off a text node, if present. */
+function stripLeadingLiteral(node: ChildNode | null, token: string): void {
+  if (!node || node.nodeType !== 3) return;
+  const t = node as Text;
+  const text = t.nodeValue ?? "";
+  if (text.startsWith(token)) t.nodeValue = text.slice(token.length);
 }
 
 function startOfElement(el: HTMLElement): TextPos | null {
@@ -643,14 +725,15 @@ function nextWalkableText(root: HTMLElement, after: Text): Text | null {
 
 // Each alternative allows an OPTIONAL non-capturing metadata prefix between the
 // `{` and the sigil (so capture-group indices stay fixed: m[1] comment body,
-// m[2] addition, m[3] deletion, m[4] subOld, m[5] subNew, m[6] highlight). The
-// prefix is matched-and-discarded — never echoed.
+// m[2] addition, m[3] deletion, m[4] subOld, m[5] subNew, m[6] highlight,
+// m[7] aitext). The prefix is matched-and-discarded — never echoed.
 const LITERAL_MARKUP_RE = new RegExp(
   `\\{${PFX_SRC}>>([\\s\\S]*?)<<\\}` +
     `|\\{${PFX_SRC}\\+\\+([\\s\\S]*?)\\+\\+\\}` +
     `|\\{${PFX_SRC}--([\\s\\S]*?)--\\}` +
     `|\\{${PFX_SRC}~~([\\s\\S]*?)~>([\\s\\S]*?)~~\\}` +
-    `|\\{${PFX_SRC}==([\\s\\S]*?)==\\}`,
+    `|\\{${PFX_SRC}==([\\s\\S]*?)==\\}` +
+    `|\\{${PFX_SRC}=\\+([\\s\\S]*?)\\+=\\}`,
   "g",
 );
 
@@ -760,6 +843,7 @@ function renderLiteralMatch(
   const deletion = m[3];
   const subNew = m[5];
   const highlight = m[6];
+  const aitext = m[7];
   if (comment !== undefined) {
     if (!opts.showComments) return null;
     return makeFallbackIcon(doc, comment, opts.localAuthorName ?? "");
@@ -771,6 +855,12 @@ function renderLiteralMatch(
     const mark = doc.createElement("mark");
     mark.textContent = highlight;
     return mark;
+  }
+  if (aitext !== undefined) {
+    const span = doc.createElement("span");
+    span.className = "tc-aitext";
+    span.textContent = aitext;
+    return span;
   }
   return null;
 }

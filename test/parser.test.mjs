@@ -145,6 +145,37 @@ test("parses highlight", () => {
   assert.equal(r.nodes[0].kind, "highlight");
 });
 
+test("parses AI-added text", () => {
+  const r = parse("x {=+by the AI+=} y");
+  assert.equal(r.nodes.length, 1);
+  const n = r.nodes[0];
+  assert.equal(n.kind, "aitext");
+  assert.equal(n.text, "by the AI");
+  // inner bounds exclude the {=+ and +=} sigils.
+  assert.equal(r.nodes[0].from, 2);
+  assert.equal(n.text, "x {=+by the AI+=} y".slice(n.innerFrom, n.innerTo));
+});
+
+test("AI-added text carries an author=/date= prefix", () => {
+  const r = parse('{author="Claude" date="2026-06-28"=+ hi +=}');
+  assert.equal(r.nodes.length, 1);
+  const n = r.nodes[0];
+  assert.equal(n.kind, "aitext");
+  assert.equal(n.metaAttrs.author, "Claude");
+  assert.equal(n.metaDate, "2026-06-28");
+  assert.equal(n.text, " hi ");
+});
+
+test("AI-added text does not collide with highlight or addition", () => {
+  const r = parse("{==h==} {=+a+=} {++p++}");
+  assert.deepEqual(r.nodes.map((n) => n.kind), ["highlight", "aitext", "addition"]);
+});
+
+test("AI-added text inside a code span is left alone", () => {
+  const r = parse("see `{=+x+=}` literal");
+  assert.equal(r.nodes.length, 0);
+});
+
 test("mixed forms in document order", () => {
   const r = parse("a {++ins++} b {--del--} c {~~o~>n~~} d {>>Claude: c<<}");
   const kinds = r.nodes.map((n) => n.kind);

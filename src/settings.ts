@@ -209,5 +209,15 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("Strip AI-added text")
+      .setDesc("Remove {=+…+=} markers, keep their content.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.finalize.stripAiText).onChange(async (v) => {
+          this.plugin.settings.finalize.stripAiText = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 }

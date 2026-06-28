@@ -241,7 +241,9 @@ export class ReviewPanelView extends ItemView {
 
     this.renderHeader(file, parsed);
 
-    if (parsed.nodes.length === 0) {
+    // `aitext` marks render no card (visual-only), so a file with only those
+    // would otherwise leave an empty card list — show the empty state instead.
+    if (parsed.nodes.every((n) => n.kind === "aitext")) {
       this.contentEl.createEl("p", {
         cls: "tc-empty",
         text: "No comments or suggestions in this file.",

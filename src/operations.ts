@@ -159,6 +159,12 @@ export function removeHighlight(node: CriticNode): SourceEdit {
   return { from: node.from, to: node.to, insert: node.text, expected: node.raw };
 }
 
+/** Remove an AI-added-text mark: strip the {=+…+=} wrapper, keep the inner text. */
+export function removeAiText(node: CriticNode): SourceEdit {
+  if (node.kind !== "aitext") throw new Error("removeAiText: wrong node kind");
+  return { from: node.from, to: node.to, insert: node.text, expected: node.raw };
+}
+
 /** Delete a single comment node (one message within a thread). */
 export function deleteCommentNode(node: CriticNode): SourceEdit {
   if (node.kind !== "comment") throw new Error("deleteCommentNode: wrong node kind");
@@ -255,6 +261,8 @@ export interface FinalizeOptions {
   substitutions: "accept" | "reject";
   /** Also strip highlights (default true; they are non-semantic visual marks). */
   stripHighlights: boolean;
+  /** Also strip AI-added-text marks, keeping their text (default true). */
+  stripAiText: boolean;
 }
 
 export const DEFAULT_FINALIZE: FinalizeOptions = {
@@ -262,6 +270,7 @@ export const DEFAULT_FINALIZE: FinalizeOptions = {
   deletions: "reject",
   substitutions: "reject",
   stripHighlights: true,
+  stripAiText: true,
 };
 
 export function finalizeEdits(
@@ -288,6 +297,9 @@ export function finalizeEdits(
       case "highlight":
         if (opts.stripHighlights) edits.push(removeHighlight(n));
         break;
+      case "aitext":
+        if (opts.stripAiText) edits.push(removeAiText(n));
+        break;
     }
   }
   return edits;
@@ -305,6 +317,7 @@ export interface FinalizeSummary {
   substitutionsAccepted: number;
   substitutionsRejected: number;
   highlights: number;
+  aiText: number;
 }
 
 export function summarizeFinalize(
@@ -320,6 +333,7 @@ export function summarizeFinalize(
     substitutionsAccepted: 0,
     substitutionsRejected: 0,
     highlights: 0,
+    aiText: 0,
   };
   for (const n of parsed.nodes) {
     if (n.kind === "comment") s.comments++;
@@ -334,6 +348,8 @@ export function summarizeFinalize(
       else s.substitutionsRejected++;
     } else if (n.kind === "highlight") {
       s.highlights++;
+    } else if (n.kind === "aitext") {
+      s.aiText++;
     }
   }
   return s;
