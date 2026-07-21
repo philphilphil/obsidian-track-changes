@@ -130,15 +130,51 @@
   margin-left: 2px;
 }
 
+/* ---------- Operation mark backgrounds ----------
+ *
+ * The operation tint is an alpha wash, so what you actually see is the page
+ * behind it. The same alpha that reads as a soft tint on a light background
+ * all but disappears on a dark one — and per the note at the top of this file
+ * the background *is* the operation signal, so on dark themes that signal was
+ * effectively lost. Each tint is therefore declared once as a variable and
+ * raised under `.theme-dark`, keeping one source of truth per operation.
+ *
+ * Dark-mode alphas were picked to match the *apparent* tint strength of the
+ * light values against Obsidian's default backgrounds, holding to the
+ * "visually quiet enough to read prose around it" rule above — they are
+ * deliberately not the strongest values that would still be legible. */
+body {
+  --tc-add-bg: rgba(56, 161, 105, 0.12);
+  --tc-del-bg: rgba(220, 38, 38, 0.08);
+  --tc-highlight-bg: rgba(252, 211, 77, 0.30);
+  --tc-sub-old-bg: rgba(220, 38, 38, 0.06);
+  --tc-sub-new-bg: rgba(56, 161, 105, 0.12);
+  --tc-sub-old-changed-bg: rgba(220, 38, 38, 0.28);
+  --tc-sub-new-changed-bg: rgba(56, 161, 105, 0.30);
+  --tc-comment-named-bg: hsla(280, 70%, 55%, 0.12);
+  --tc-comment-you-bg: rgba(0, 122, 204, 0.10);
+}
+.theme-dark {
+  --tc-add-bg: rgba(56, 161, 105, 0.32);
+  --tc-del-bg: rgba(220, 38, 38, 0.28);
+  --tc-highlight-bg: rgba(252, 211, 77, 0.45);
+  --tc-sub-old-bg: rgba(220, 38, 38, 0.22);
+  --tc-sub-new-bg: rgba(56, 161, 105, 0.32);
+  --tc-sub-old-changed-bg: rgba(220, 38, 38, 0.50);
+  --tc-sub-new-changed-bg: rgba(56, 161, 105, 0.52);
+  --tc-comment-named-bg: hsla(280, 70%, 55%, 0.32);
+  --tc-comment-you-bg: rgba(0, 122, 204, 0.30);
+}
+
 .tc-addition {
-  background: rgba(56, 161, 105, 0.12);
+  background: var(--tc-add-bg);
 }
 .tc-deletion {
-  background: rgba(220, 38, 38, 0.08);
+  background: var(--tc-del-bg);
   text-decoration: line-through;
 }
 .tc-highlight {
-  background: rgba(252, 211, 77, 0.30);
+  background: var(--tc-highlight-bg);
 }
 /* AI-added text: a two-colour "sunset" gradient on the glyphs (orange → violet).
    A solid fallback colour keeps the text visible if background-clip is
@@ -157,26 +193,26 @@
 }
 .tc-sub-old {
   text-decoration: line-through;
-  background: rgba(220, 38, 38, 0.06);
+  background: var(--tc-sub-old-bg);
 }
 .tc-sub-new {
-  background: rgba(56, 161, 105, 0.12);
+  background: var(--tc-sub-new-bg);
 }
 .tc-sub-raw-old {
-  background: rgba(220, 38, 38, 0.06);
+  background: var(--tc-sub-old-bg);
   text-decoration: line-through;
 }
 .tc-sub-raw-new {
-  background: rgba(56, 161, 105, 0.12);
+  background: var(--tc-sub-new-bg);
 }
 .tc-raw-comment {
   border-radius: 2px;
 }
 .tc-raw-comment-named {
-  background: hsla(280, 70%, 55%, 0.12); /* purple — AI */
+  background: var(--tc-comment-named-bg); /* purple — AI */
 }
 .tc-raw-comment-you {
-  background: rgba(0, 122, 204, 0.10); /* blue — matches tc-chip-you */
+  background: var(--tc-comment-you-bg); /* blue — matches tc-chip-you */
 }
 .tc-sub-arrow {
   color: var(--text-muted);
@@ -198,11 +234,11 @@
 }
 .tc-sub-old-changed {
   display: inline;
-  background: rgba(220, 38, 38, 0.28);
+  background: var(--tc-sub-old-changed-bg);
 }
 .tc-sub-new-changed {
   display: inline;
-  background: rgba(56, 161, 105, 0.30);
+  background: var(--tc-sub-new-changed-bg);
 }
 
 /* ---------- Right panel ---------- */
