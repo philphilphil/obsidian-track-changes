@@ -144,11 +144,58 @@ export function computeTrackEdits(
   // round-trip safe, just less tidy.
   for (const cluster of buildClusters(parts, lenOf)) {
     const wrapPool = wrappedBaselineWords(cluster);
-    for (const h of cluster) {
-      emitHunk(h.removed, h.added, h.hunkStart, current, attribution, edits, counts, wrapPool);
+    const renders = cluster.map((h) =>
+      renderHunk(h.removed, h.added, h.hunkStart, current, attribution, counts, wrapPool),
+    );
+    creditFreedSpaces(renders);
+    for (const r of renders) {
+      const insert = r.deletion + r.addition;
+      if (insert === r.expected) continue; // nothing markable survived
+      edits.push({
+        from: r.hunkStart,
+        to: r.hunkEnd,
+        insert,
+        expected: r.expected,
+        before: current.slice(Math.max(0, r.hunkStart - BEFORE_ANCHOR), r.hunkStart),
+      });
     }
   }
   return { edits, counts, tooManyChanges: false };
+}
+
+interface HunkRender {
+  hunkStart: number;
+  hunkEnd: number;
+  expected: string;
+  deletion: string; // session deletion marks (renderRemoved), placed ahead of addition
+  addition: string; // pass-through marks + session additions (renderAdded), or a substitution
+  /**
+   * True when this hunk suppressed a leading wrapped word and dropped the
+   * following space that separated it from a survivor in an EARLIER hunk of the
+   * same cluster. jsdiff can keep that survivor and its separating space in
+   * different hunks, so the space must be credited back to the earlier
+   * deletion or reject-all would merge the two words.
+   */
+  freedLeadingSpace: boolean;
+}
+
+/**
+ * Repair spacing across a cluster: when a hunk freed the space that a survivor
+ * deletion in an earlier hunk still needs (see HunkRender.freedLeadingSpace),
+ * append that space inside the nearest preceding deletion body so reject-all
+ * restores the exact baseline spacing.
+ */
+function creditFreedSpaces(renders: HunkRender[]): void {
+  for (let k = 0; k < renders.length; k++) {
+    if (!renders[k].freedLeadingSpace) continue;
+    for (let j = k - 1; j >= 0; j--) {
+      if (renders[j].deletion === "") continue;
+      if (!/ --\}$/.test(renders[j].deletion)) {
+        renders[j].deletion = renders[j].deletion.replace(/--\}$/, " --}");
+      }
+      break;
+    }
+  }
 }
 
 interface Hunk {
@@ -237,27 +284,36 @@ function wrappedBaselineWords(cluster: Hunk[]): string[] {
   return pool;
 }
 
-function emitHunk(
+function renderHunk(
   removed: Token[],
   added: Token[],
   hunkStart: number,
   current: string,
   attribution: string,
-  edits: SourceEdit[],
   counts: TrackCounts,
   wrapPool: string[],
-): number {
+): HunkRender {
   const hunkEnd = hunkStart + added.reduce((n, t) => n + t.text.length, 0);
+  const expected = current.slice(hunkStart, hunkEnd);
   const removedText = removed.map((t) => t.text).join("");
   const addedText = added.map((t) => t.text).join("");
+  const base: HunkRender = {
+    hunkStart,
+    hunkEnd,
+    expected,
+    deletion: "",
+    addition: "",
+    freedLeadingSpace: false,
+  };
 
-  // Whitespace-only hunk: the change stands unmarked.
-  if (/^\s*$/.test(removedText) && /^\s*$/.test(addedText)) return hunkEnd;
+  // Whitespace-only hunk: the change stands unmarked (addition === expected).
+  if (/^\s*$/.test(removedText) && /^\s*$/.test(addedText)) {
+    return { ...base, addition: addedText };
+  }
 
   const atomics = removed.concat(added).filter((t) => t.kind === "mark" || t.kind === "code");
   const noAtomics = atomics.length === 0;
 
-  let insert: string;
   if (
     noAtomics &&
     isOneChunk(removedText) &&
@@ -265,10 +321,13 @@ function emitHunk(
     !hasDelimiter(removedText) &&
     !hasDelimiter(addedText)
   ) {
-    insert = `{${attribution}~~${removedText}~>${addedText}~~}`;
+    base.addition = `{${attribution}~~${removedText}~>${addedText}~~}`;
     counts.substitutions++;
   } else {
-    insert = renderRemoved(removed, attribution, counts, wrapPool) + renderAdded(added, attribution, counts);
+    const rr = renderRemoved(removed, attribution, counts, wrapPool);
+    base.deletion = rr.text;
+    base.freedLeadingSpace = rr.freedLeadingSpace;
+    base.addition = renderAdded(added, attribution, counts);
   }
 
   // Count one changed code block per hunk, not once per side (a swapped fenced
@@ -277,16 +336,7 @@ function emitHunk(
   const addedCode = added.filter((t) => t.kind === "code").length;
   counts.codeChanged += Math.max(removedCode, addedCode);
 
-  const expected = current.slice(hunkStart, hunkEnd);
-  if (insert === expected) return hunkEnd; // nothing markable survived
-  edits.push({
-    from: hunkStart,
-    to: hunkEnd,
-    insert,
-    expected,
-    before: current.slice(Math.max(0, hunkStart - BEFORE_ANCHOR), hunkStart),
-  });
-  return hunkEnd;
+  return base;
 }
 
 /** Non-empty, non-whitespace text that blockSplit keeps as a single chunk. */
@@ -299,13 +349,16 @@ function isOneChunk(text: string): boolean {
 /**
  * Render the removed side as deletion marks placed ahead of the hunk's added
  * output. Removed mark tokens vanish (the user resolved/deleted that
- * suggestion); removed code tokens vanish (counted per-hunk in emitHunk);
+ * suggestion); removed code tokens vanish (counted per-hunk in renderHunk);
  * plain text is block-split, chunks wrapped, interior separators kept so a
  * reject restores structure, edge separators dropped. A removed word whose
  * text a pass-through mark in the same cluster already wraps (its word is in
  * `wrapPool`) is dropped — along with one adjacent whitespace token so the gap
  * closes without orphaning a leading/trailing space inside a deletion body —
- * so we never double-mark text a mid-session mark accounts for. Removed code
+ * so we never double-mark text a mid-session mark accounts for. When the run
+ * begins with such a suppressed word whose following space is dropped, the
+ * result reports `freedLeadingSpace` so the caller can credit that space to a
+ * survivor deletion in an earlier hunk (see creditFreedSpaces). Removed code
  * tokens and unsafe (delimiter-bearing) dropped chunks are NOT restorable by
  * reject-all — by design.
  */
@@ -314,7 +367,7 @@ function renderRemoved(
   attribution: string,
   counts: TrackCounts,
   wrapPool: string[],
-): string {
+): { text: string; freedLeadingSpace: boolean } {
   const skip = new Set<number>();
   for (let k = 0; k < removed.length; k++) {
     if (removed[k].kind !== "word") continue;
@@ -322,11 +375,24 @@ function renderRemoved(
     if (idx === -1) continue;
     wrapPool.splice(idx, 1);
     skip.add(k);
-    // Drop one adjacent space (prefer the following one) so suppression never
-    // leaves an orphaned space at a chunk edge.
-    if (removed[k + 1]?.kind === "space") skip.add(k + 1);
-    else if (removed[k - 1]?.kind === "space") skip.add(k - 1);
+    // Drop one adjacent space so suppression never leaves an orphaned space at
+    // a chunk edge. Prefer the following space; fall back to the preceding one
+    // only when everything before it is also suppressed — otherwise that space
+    // is the trailing separator a surviving deletion still needs.
+    if (removed[k + 1]?.kind === "space") {
+      skip.add(k + 1);
+    } else if (removed[k - 1]?.kind === "space") {
+      let allBeforeSkipped = true;
+      for (let j = 0; j < k - 1; j++) if (!skip.has(j)) { allBeforeSkipped = false; break; }
+      if (allBeforeSkipped) skip.add(k - 1);
+    }
   }
+
+  // The run leads with a suppressed word whose following space was dropped:
+  // that space was the separator to a survivor in an earlier hunk (jsdiff kept
+  // them apart), so signal the caller to credit it back.
+  const freedLeadingSpace =
+    removed[0]?.kind === "word" && skip.has(0) && removed[1]?.kind === "space" && skip.has(1);
 
   const plain: string[] = [];
   let buf = "";
@@ -368,7 +434,7 @@ function renderRemoved(
     while (e > s && !rendered[e - 1].startsWith(`{${attribution}--`)) e--;
     out += rendered.slice(s, e).join("");
   }
-  return out;
+  return { text: out, freedLeadingSpace };
 }
 
 /**

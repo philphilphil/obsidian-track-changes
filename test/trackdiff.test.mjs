@@ -367,6 +367,20 @@ test("wrap: real deletion keeps whitespace; wrapped words not re-marked", () => 
   assert.equal(acceptAll(marked), acceptAll(cur));
 });
 
+// Probe b1: a surviving deletion precedes the wrapped word in the same run.
+// Suppressing the wrapped word must not steal the space separating it from the
+// survivor — the deletion body keeps its trailing space.
+test("wrap: surviving deletion before wrapped word keeps its trailing space", () => {
+  const base = "bad old beta";
+  const cur = "{--old--} beta";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.ok(marked.includes(`{${PP}--bad --}`), "survivor keeps trailing space");
+  assert.ok(!marked.includes(`{${PP}--bad--}`), "no space-merged deletion body");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
+});
+
 // Mirror order: the wrap mark comes BEFORE the real deletion in the document.
 test("wrap: wrap-mark before real deletion also round-trips", () => {
   const base = "old alpha beta and old gone";
