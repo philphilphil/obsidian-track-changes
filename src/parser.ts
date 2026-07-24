@@ -162,7 +162,7 @@ function parseMetaPrefix(prefix: string): MetaPrefix {
  * should remain literal — it's an example, not a real annotation. Returned
  * ranges are sorted and non-overlapping.
  */
-function findCodeRegions(source: string): Array<[number, number]> {
+export function findCodeRegions(source: string): Array<[number, number]> {
   const regions: Array<[number, number]> = [];
   // Fenced blocks: ``` or ~~~ starting a line, terminated by the same fence on its own line.
   // Opener and closer may each be indented 0–3 spaces, independently of one another —
