@@ -204,8 +204,8 @@ export type ReplyDateStyle = "date" | "datetime";
 // UTC ISO. The bare "date" form has no zone marker, so it reflects the user's
 // local calendar day — UTC would read a day ahead in negative-offset zones near
 // midnight. "datetime" keeps Z because it carries an explicit zone.
-function formatReplyDate(style: ReplyDateStyle): string {
-  const d = new Date();
+function formatReplyDate(style: ReplyDateStyle, now: Date = new Date()): string {
+  const d = now;
   if (style === "datetime") {
     return `${d.toISOString().slice(0, 19)}Z`;
   }
@@ -213,6 +213,21 @@ function formatReplyDate(style: ReplyDateStyle): string {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Metadata prefix for a plugin-written mark: always `date="…"`, plus
+ * `author="…"` when the local author name (trimmed, sanitized) is non-empty.
+ * Shared by replies, manual authoring, and tracking sessions.
+ */
+export function buildAttributionPrefix(
+  localAuthorName: string,
+  dateStyle: ReplyDateStyle,
+  now: Date = new Date(),
+): string {
+  const date = formatReplyDate(dateStyle, now);
+  const author = sanitizeAuthorName((localAuthorName ?? "").trim());
+  return author ? `author="${author}" date="${date}"` : `date="${date}"`;
 }
 
 /**
@@ -241,9 +256,7 @@ export function appendReply(
 
   // Pairs are space-separated and the closing quote abuts the `>>` sigil — no
   // trailing `;`. A reply with no author= (or the user's own name) is "You".
-  const date = formatReplyDate(dateStyle);
-  const author = sanitizeAuthorName((localAuthorName ?? "").trim());
-  const prefix = author ? `author="${author}" date="${date}"` : `date="${date}"`;
+  const prefix = buildAttributionPrefix(localAuthorName, dateStyle);
   const reply = `{${prefix}>>${text}<<}`;
   // Insert with no whitespace so the threading parser groups it.
   return {
