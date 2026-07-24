@@ -5,6 +5,7 @@ import {
   TFile,
   Notice,
   Editor,
+  normalizePath,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
@@ -15,6 +16,8 @@ import { applyEdits, rebaseEdits, buildAttributionPrefix, type SourceEdit } from
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import { buildMark, checkGuards, type AuthoringKind } from "./authoring";
+import { SessionStore, type SessionPersistence } from "./session";
+import { computeTrackEdits, type TrackCounts } from "./trackdiff";
 import {
   DEFAULT_SETTINGS,
   TrackChangesCriticMarkupSettingsTab,
@@ -42,8 +45,24 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   // on doc changes).
   private editorExtensions: Extension[] = [];
 
+  private sessionStore!: SessionStore;
+  private trackingStatusEl!: HTMLElement;
+
   async onload(): Promise<void> {
     await this.loadSettings();
+
+    const sessionsPath = normalizePath(`${this.manifest.dir}/sessions.json`);
+    const persistence: SessionPersistence = {
+      read: async () =>
+        (await this.app.vault.adapter.exists(sessionsPath))
+          ? this.app.vault.adapter.read(sessionsPath)
+          : null,
+      write: (data) => this.app.vault.adapter.write(sessionsPath, data),
+    };
+    this.sessionStore = await SessionStore.load(
+      persistence,
+      (path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
+    );
 
     // Right-panel view registration.
     this.registerView(REVIEW_VIEW_TYPE, (leaf) => this.makeReviewView(leaf));
@@ -90,6 +109,63 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         },
       });
     }
+
+    // Change-tracking sessions (issue #36).
+    this.addCommand({
+      id: "toggle-change-tracking",
+      name: "Toggle change tracking",
+      icon: "file-diff",
+      editorCheckCallback: (checking, editor, view) => {
+        if (!(view instanceof MarkdownView)) return false;
+        const file = view.file; // capture so TS narrows null away
+        if (!file || file.extension !== "md") return false;
+        if (!checking) void this.toggleTracking(file, editor);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "cancel-change-tracking",
+      name: "Cancel change tracking (discard session)",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !this.sessionStore.has(file.path)) return false;
+        if (!checking) {
+          void this.sessionStore.end(file.path).then(() => {
+            new Notice("Change tracking canceled — no marks written.");
+            this.updateTrackingStatus();
+          });
+        }
+        return true;
+      },
+    });
+
+    this.trackingStatusEl = this.addStatusBarItem();
+    this.trackingStatusEl.addClass("mod-clickable");
+    this.trackingStatusEl.setAttribute("aria-label", "Toggle change tracking");
+    this.trackingStatusEl.onClickEvent(() => {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view?.file && view.file.extension === "md") {
+        void this.toggleTracking(view.file, view.editor);
+      }
+    });
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.updateTrackingStatus()),
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (f, oldPath) => {
+        if (f instanceof TFile && this.sessionStore.has(oldPath)) {
+          void this.sessionStore.rename(oldPath, f.path).then(() => this.updateTrackingStatus());
+        }
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (f) => {
+        if (f instanceof TFile && this.sessionStore.has(f.path)) {
+          void this.sessionStore.end(f.path).then(() => this.updateTrackingStatus());
+        }
+      }),
+    );
+    this.updateTrackingStatus();
 
     // Right-click menu: only the actions valid for the current selection
     // state, in their own separator section. (MenuItem.setSubmenu is not in
@@ -459,6 +535,44 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     });
   }
 
+  // ---- change-tracking sessions (issue #36) ----
+
+  private async toggleTracking(file: TFile, editor: Editor): Promise<void> {
+    if (this.sessionStore.has(file.path)) {
+      await this.stopTracking(file, editor);
+      return;
+    }
+    await this.sessionStore.start(file.path, editor.getValue(), new Date().toISOString());
+    new Notice("Change tracking started.");
+    this.updateTrackingStatus();
+  }
+
+  private async stopTracking(file: TFile, editor: Editor): Promise<void> {
+    const session = this.sessionStore.get(file.path);
+    if (!session) return;
+    const attribution = buildAttributionPrefix(
+      this.settings.localAuthorName ?? "",
+      this.settings.replyDateStyle,
+    );
+    const { edits, counts } = computeTrackEdits(session.baseline, editor.getValue(), attribution);
+    if (edits.length === 0) {
+      new Notice("No changes since tracking started.");
+    } else {
+      const ok = await this.applyEditsToFile(file, edits);
+      if (!ok) return; // keep the session so the user can retry
+      new Notice(formatTrackingNotice(counts));
+    }
+    await this.sessionStore.end(file.path);
+    this.updateTrackingStatus();
+  }
+
+  private updateTrackingStatus(): void {
+    const file = this.app.workspace.getActiveFile();
+    const tracking = file !== null && this.sessionStore.has(file.path);
+    this.trackingStatusEl.setText(tracking ? "Tracking changes" : "");
+    this.trackingStatusEl.toggleClass("tc-tracking-active", tracking);
+  }
+
   // ---- finalize ----
 
   private async runFinalize(file: TFile): Promise<void> {
@@ -490,3 +604,14 @@ type EditFailureReason = "stale" | "moved";
 type PreparedEdits =
   | { ok: true; edits: SourceEdit[]; dropped: number }
   | { ok: false; reason: EditFailureReason; dropped: number };
+
+function formatTrackingNotice(counts: TrackCounts): string {
+  const parts: string[] = [];
+  if (counts.additions) parts.push(`${counts.additions} addition(s)`);
+  if (counts.deletions) parts.push(`${counts.deletions} deletion(s)`);
+  if (counts.substitutions) parts.push(`${counts.substitutions} substitution(s)`);
+  let msg = parts.length ? `Marked ${parts.join(", ")}.` : "Changes recorded.";
+  if (counts.codeChanged) msg += ` ${counts.codeChanged} code change(s) left unmarked.`;
+  if (counts.unsafeSkipped) msg += ` ${counts.unsafeSkipped} unsafe fragment(s) left unmarked.`;
+  return msg;
+}

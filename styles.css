@@ -568,3 +568,7 @@
   gap: 8px;
   margin-top: 12px;
 }
+
+.status-bar-item.mod-clickable.tc-tracking-active {
+  color: var(--text-accent);
+}
