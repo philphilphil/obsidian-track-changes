@@ -53,6 +53,7 @@ export interface BlockPiece {
  * never contain a blank line, never have a non-first line that opens a block,
  * and a block-marker line is always its own chunk. Every mark the emitter
  * writes wraps exactly one chunk, keeping generated markup single-block.
+ * CRLF is not handled — callers pass LF vault text.
  */
 export function blockSplit(text: string): BlockPiece[] {
   const pieces: BlockPiece[] = [];
@@ -99,7 +100,13 @@ export interface TrackCounts {
 export interface TrackDiffResult {
   edits: SourceEdit[];
   counts: TrackCounts;
+  /** True when the diff exceeded MAX_EDIT_LENGTH; edits is empty, caller should keep the session. */
+  tooManyChanges: boolean;
 }
+
+// jsdiff's diffArrays is O(edit-distance²); a huge rewrite can freeze the UI
+// for tens of seconds. Cap the edit distance and bail (undefined result) past it.
+const MAX_EDIT_LENGTH = 5000;
 
 const DELIMITER_FRAGMENTS = [
   "{++", "++}", "{--", "--}", "{~~", "~>", "~~}",
@@ -124,11 +131,18 @@ export function computeTrackEdits(
   const edits: SourceEdit[] = [];
   const parts = diffArrays(tokenize(baseline), tokenize(current), {
     comparator: (a, b) => a.text === b.text,
+    maxEditLength: MAX_EDIT_LENGTH,
   });
+  if (!parts) return { edits, counts, tooManyChanges: true };
 
   const lenOf = (tokens: Token[]): number => tokens.reduce((n, t) => n + t.text.length, 0);
+  const wrapPool = wrappedBaselineWords(parts);
   let cur = 0; // offset into `current`
 
+  // jsdiff emits a removed part immediately before the added part it pairs
+  // with; the walk relies on that ordering to pair del+add into one hunk. If a
+  // future jsdiff reversed it, hunks would degrade to separate del/add marks —
+  // still round-trip safe, just less tidy.
   let i = 0;
   while (i < parts.length) {
     const part = parts[i];
@@ -150,9 +164,36 @@ export function computeTrackEdits(
       added = part.value;
       i++;
     }
-    cur = emitHunk(removed, added, cur, current, attribution, edits, counts);
+    cur = emitHunk(removed, added, cur, current, attribution, edits, counts, wrapPool);
   }
-  return { edits, counts };
+  return { edits, counts, tooManyChanges: false };
+}
+
+/**
+ * Words of the old-side payloads of every added-side pass-through mark — the
+ * baseline text a mark authored mid-session already wraps (deletion body,
+ * substitution old side, highlight body; additions/comments/aitext have no old
+ * side). Built globally across the whole diff because jsdiff can scatter a
+ * wrapped run's baseline words across several hunks. A removed word matching
+ * this pool is suppressed rather than re-marked as a session deletion, so
+ * reject-all restores the baseline through the pass-through mark alone.
+ */
+function wrappedBaselineWords(parts: Array<{ added?: boolean; value: Token[] }>): string[] {
+  const pool: string[] = [];
+  const add = (payload: string): void => {
+    for (const w of payload.match(/\S+/g) ?? []) pool.push(w);
+  };
+  for (const p of parts) {
+    if (!p.added) continue;
+    for (const t of p.value) {
+      if (t.kind !== "mark") continue;
+      const node = parse(t.text).nodes[0];
+      if (!node) continue;
+      if (node.kind === "deletion" || node.kind === "highlight") add(node.text);
+      else if (node.kind === "substitution") add(node.oldText);
+    }
+  }
+  return pool;
 }
 
 function emitHunk(
@@ -163,6 +204,7 @@ function emitHunk(
   attribution: string,
   edits: SourceEdit[],
   counts: TrackCounts,
+  wrapPool: string[],
 ): number {
   const hunkEnd = hunkStart + added.reduce((n, t) => n + t.text.length, 0);
   const removedText = removed.map((t) => t.text).join("");
@@ -185,8 +227,14 @@ function emitHunk(
     insert = `{${attribution}~~${removedText}~>${addedText}~~}`;
     counts.substitutions++;
   } else {
-    insert = renderRemoved(removed, attribution, counts) + renderAdded(added, attribution, counts);
+    insert = renderRemoved(removed, attribution, counts, wrapPool) + renderAdded(added, attribution, counts);
   }
+
+  // Count one changed code block per hunk, not once per side (a swapped fenced
+  // block is one removed + one added code token, but a single change).
+  const removedCode = removed.filter((t) => t.kind === "code").length;
+  const addedCode = added.filter((t) => t.kind === "code").length;
+  counts.codeChanged += Math.max(removedCode, addedCode);
 
   const expected = current.slice(hunkStart, hunkEnd);
   if (insert === expected) return hunkEnd; // nothing markable survived
@@ -210,11 +258,20 @@ function isOneChunk(text: string): boolean {
 /**
  * Render the removed side as deletion marks placed ahead of the hunk's added
  * output. Removed mark tokens vanish (the user resolved/deleted that
- * suggestion); removed code tokens vanish uncounted as marks (codeChanged++);
+ * suggestion); removed code tokens vanish (counted per-hunk in emitHunk);
  * plain text is block-split, chunks wrapped, interior separators kept so a
- * reject restores structure, edge separators dropped.
+ * reject restores structure, edge separators dropped. A removed word whose
+ * text a pass-through mark on the added side already wraps (its word is in
+ * `wrapPool`) is dropped, so we never double-mark text a mid-session mark
+ * accounts for. Removed code tokens and unsafe (delimiter-bearing) dropped
+ * chunks are NOT restorable by reject-all — by design.
  */
-function renderRemoved(removed: Token[], attribution: string, counts: TrackCounts): string {
+function renderRemoved(
+  removed: Token[],
+  attribution: string,
+  counts: TrackCounts,
+  wrapPool: string[],
+): string {
   const plain: string[] = [];
   let buf = "";
   for (const t of removed) {
@@ -222,9 +279,14 @@ function renderRemoved(removed: Token[], attribution: string, counts: TrackCount
       counts.marksPassedThrough++;
       continue;
     }
-    if (t.kind === "code") {
-      counts.codeChanged++;
-      continue;
+    if (t.kind === "code") continue;
+    if (t.kind === "word") {
+      const idx = wrapPool.indexOf(t.text);
+      if (idx !== -1) {
+        // A mid-session mark on the added side already wraps this baseline word.
+        wrapPool.splice(idx, 1);
+        continue;
+      }
     }
     buf += t.text;
   }
@@ -287,8 +349,7 @@ function renderAdded(added: Token[], attribution: string, counts: TrackCounts): 
       counts.marksPassedThrough++;
     } else if (t.kind === "code") {
       flush();
-      out += t.text;
-      counts.codeChanged++;
+      out += t.text; // code counted per-hunk in emitHunk
     } else {
       buf += t.text;
     }

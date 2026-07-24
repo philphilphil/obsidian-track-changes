@@ -265,12 +265,45 @@ test("a mark added mid-session passes through bare (e.g. panel reply)", () => {
   assert.equal(applyAll(cur, r.edits), cur, "reply not double-wrapped");
 });
 
-test("changed code block is left unmarked and counted", () => {
+test("changed code block is left unmarked and counted once", () => {
   const base = "intro\n```\nlet x = 1;\n```\noutro";
   const cur = "intro\n```\nlet x = 2;\n```\noutro";
   const r = computeTrackEdits(base, cur, PP);
   assert.equal(applyAll(cur, r.edits), cur, "code change stands unmarked");
-  assert.ok(r.counts.codeChanged >= 1);
+  assert.equal(r.counts.codeChanged, 1, "one changed block counts once, not per side");
+});
+
+test("wrap deletion added mid-session: no spurious session deletion", () => {
+  const base = "the old cat sat";
+  const cur = "the {--old--} cat sat";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(applyAll(cur, r.edits), cur, "no double-marking");
+  assert.ok(!/\{[^{}]*--old--\}\{--old--\}/.test(applyAll(cur, r.edits)));
+  assert.ok(!r.edits.some((e) => e.insert.includes(`{${PP}--`)), "no {PP-- session deletion emitted");
+});
+
+test("wrap substitution added mid-session: old side not double-marked", () => {
+  const base = "the old way";
+  const cur = "the {~~old~>new~~} way";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(applyAll(cur, r.edits), cur, "no double-marking");
+  assert.ok(!r.edits.some((e) => e.insert.includes(`{${PP}--`)), "no {PP-- session deletion emitted");
+});
+
+test("wrap highlight+comment added mid-session: anchor not double-marked", () => {
+  const base = "note this phrase please";
+  const cur = "note {==this phrase==}{>>hmm<<} please";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(applyAll(cur, r.edits), cur, "no double-marking");
+  assert.ok(!r.edits.some((e) => e.insert.includes(`{${PP}--`)), "no {PP-- session deletion emitted");
+});
+
+test("too many changes: tooManyChanges flag set, no edits", () => {
+  const base = Array.from({ length: 4000 }, (_, i) => `w${i}`).join(" ");
+  const cur = Array.from({ length: 4000 }, (_, i) => `x${i}`).join(" ");
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(r.tooManyChanges, true);
+  assert.equal(r.edits.length, 0);
 });
 
 test("prose changes around an unchanged code block are still marked", () => {

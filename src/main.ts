@@ -554,14 +554,26 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       this.settings.localAuthorName ?? "",
       this.settings.replyDateStyle,
     );
-    const { edits, counts } = computeTrackEdits(session.baseline, editor.getValue(), attribution);
+    const { edits, counts, tooManyChanges } = computeTrackEdits(
+      session.baseline,
+      editor.getValue(),
+      attribution,
+    );
+    if (tooManyChanges) {
+      new Notice("Too many changes to mark — session kept. Split the work into smaller sessions.");
+      return; // keep the session; do not end it
+    }
     if (edits.length === 0) {
       new Notice("No changes since tracking started.");
     } else {
-      const ok = await this.applyEditsToFile(file, edits);
+      // requireAll: a partial apply must never silently destroy the baseline;
+      // on failure we early-return and keep the session so the user can retry.
+      const ok = await this.applyEditsToFile(file, edits, { requireAll: true });
       if (!ok) return; // keep the session so the user can retry
       new Notice(formatTrackingNotice(counts));
     }
+    // Note: undo after this restores the document text, but the session
+    // baseline is already gone — re-marking would require restarting tracking.
     await this.sessionStore.end(file.path);
     this.updateTrackingStatus();
   }
