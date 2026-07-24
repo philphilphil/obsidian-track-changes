@@ -14,7 +14,7 @@ const out = await build({
 });
 const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
-const { tokenize } = mod;
+const { tokenize, blockSplit } = mod;
 
 function test(name, fn) {
   try {
@@ -96,3 +96,60 @@ test("whitespace tokens preserve newlines", () => {
 });
 
 console.log("done.");
+
+console.log("trackdiff blockSplit:");
+
+const rejoin = (pieces) => pieces.map((p) => p.text).join("");
+
+test("single paragraph: one chunk", () => {
+  assert.deepEqual(blockSplit("a b c"), [{ text: "a b c", sep: false }]);
+});
+
+test("soft newline stays in one chunk", () => {
+  assert.deepEqual(blockSplit("a\nb"), [{ text: "a\nb", sep: false }]);
+});
+
+test("blank line splits into chunk/sep/chunk", () => {
+  assert.deepEqual(blockSplit("a\n\nb"), [
+    { text: "a", sep: false },
+    { text: "\n\n", sep: true },
+    { text: "b", sep: false },
+  ]);
+});
+
+test("block-marker line starts its own chunk", () => {
+  assert.deepEqual(blockSplit("a\n# h"), [
+    { text: "a", sep: false },
+    { text: "\n", sep: true },
+    { text: "# h", sep: false },
+  ]);
+});
+
+test("line after a marker line is its own chunk", () => {
+  assert.deepEqual(blockSplit("# h\ntext"), [
+    { text: "# h", sep: false },
+    { text: "\n", sep: true },
+    { text: "text", sep: false },
+  ]);
+});
+
+test("multiple blank lines stay one separator", () => {
+  const pieces = blockSplit("a\n\n\n\nb");
+  assert.equal(pieces.length, 3);
+  assert.equal(pieces[1].sep, true);
+  assert.equal(rejoin(pieces), "a\n\n\n\nb");
+});
+
+test("lossless on a mixed document fragment", () => {
+  const text = "intro line\n\n- item one\n- item two\n\n> quoted";
+  assert.equal(rejoin(blockSplit(text)), text);
+  for (const p of blockSplit(text)) {
+    if (!p.sep) {
+      assert.ok(!/\n[ \t]*\n/.test(p.text), "chunk contains a blank line: " + JSON.stringify(p.text));
+    }
+  }
+});
+
+test("whitespace-only input: one separator", () => {
+  assert.deepEqual(blockSplit("\n\n"), [{ text: "\n\n", sep: true }]);
+});
