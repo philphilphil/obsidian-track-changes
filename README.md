@@ -32,7 +32,8 @@ Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~
 - *Open review panel*
 - *Finalize for publish* — accept additions, drop deletions and comments, etc.
 - *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also available via right-click in the editor
-- *Toggle change tracking*, *Cancel change tracking* — also available via the status-bar indicator
+- *Toggle change tracking* — also available via the status-bar indicator
+- *Cancel change tracking* — discard the session without writing marks
 
 ## Install
 
