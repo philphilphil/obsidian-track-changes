@@ -239,3 +239,72 @@ test("accept-all yields current, reject-all yields baseline (simple prose)", () 
     .replace(/\{[^{}]*?~~([\s\S]*?)~>[\s\S]*?~~\}/g, "$1");
   assert.equal(rejected, base);
 });
+
+console.log("trackdiff atomic-token rules:");
+
+test("edit inside an existing mark is absorbed (never nested)", () => {
+  const base = 'keep {++alpha beta gamma++} keep';
+  const cur = 'keep {++alpha delta gamma++} keep';
+  const r = computeTrackEdits(base, cur, PP);
+  const out = applyAll(cur, r.edits);
+  assert.equal(out, cur, "amended mark passes through untouched");
+  assert.ok(r.counts.marksPassedThrough >= 1);
+});
+
+test("deleting a whole existing mark emits nothing", () => {
+  const base = "a {--old--} b";
+  const cur = "a b";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(applyAll(cur, r.edits), "a b");
+});
+
+test("a mark added mid-session passes through bare (e.g. panel reply)", () => {
+  const base = "a {>>root<<} b";
+  const cur = 'a {>>root<<}{date="2026-07-24">>reply<<} b';
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(applyAll(cur, r.edits), cur, "reply not double-wrapped");
+});
+
+test("changed code block is left unmarked and counted", () => {
+  const base = "intro\n```\nlet x = 1;\n```\noutro";
+  const cur = "intro\n```\nlet x = 2;\n```\noutro";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(applyAll(cur, r.edits), cur, "code change stands unmarked");
+  assert.ok(r.counts.codeChanged >= 1);
+});
+
+test("prose changes around an unchanged code block are still marked", () => {
+  const base = "aaa\n```\ncode\n```\nbbb";
+  const cur = "aaa zzz\n```\ncode\n```\nbbb";
+  const r = computeTrackEdits(base, cur, PP);
+  const out = applyAll(cur, r.edits);
+  assert.ok(out.includes("++"), "prose addition marked");
+  assert.ok(out.includes("```\ncode\n```"), "code block untouched");
+});
+
+test("safety valve: added text containing a delimiter fragment stays bare", () => {
+  const base = "a b";
+  const cur = "a broken ++} thing b";
+  const r = computeTrackEdits(base, cur, PP);
+  const out = applyAll(cur, r.edits);
+  assert.ok(out.includes("broken ++} thing"), "unsafe text not wrapped");
+  assert.ok(r.counts.unsafeSkipped >= 1);
+});
+
+test("safety valve: removed text containing a delimiter fragment is dropped, not marked", () => {
+  const base = "a broken ++} thing b";
+  const cur = "a b";
+  const r = computeTrackEdits(base, cur, PP);
+  const out = applyAll(cur, r.edits);
+  assert.ok(!out.includes("{--"), "no deletion mark for unsafe text");
+});
+
+test("substitution not paired across an atomic token", () => {
+  const base = "x one {==hl==} two y";
+  const cur = "x uno {==hl==} dos y";
+  const r = computeTrackEdits(base, cur, PP);
+  const out = applyAll(cur, r.edits);
+  assert.ok(out.includes("{==hl==}"), "highlight untouched");
+  const parsedMarks = out.match(/\{[^{}]*(\+\+|--|~~)[^{}]*\}/g) ?? [];
+  assert.ok(parsedMarks.length >= 2, "two independent changes marked");
+});
