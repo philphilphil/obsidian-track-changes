@@ -95,6 +95,8 @@ export interface TrackCounts {
   codeChanged: number;
   marksPassedThrough: number;
   unsafeSkipped: number;
+  /** Clusters that still could not be reject-restored after degrading (drift onto identical words). */
+  unrestorableRegions: number;
 }
 
 export interface TrackDiffResult {
@@ -127,6 +129,7 @@ export function computeTrackEdits(
     codeChanged: 0,
     marksPassedThrough: 0,
     unsafeSkipped: 0,
+    unrestorableRegions: 0,
   };
   const edits: SourceEdit[] = [];
   const parts = diffArrays(tokenize(baseline), tokenize(current), {
@@ -148,9 +151,8 @@ export function computeTrackEdits(
       renderHunk(h.removed, h.added, h.hunkStart, current, attribution, counts, wrapPool),
     );
     creditFreedSpaces(renders);
-    if (selfCheckFailsClosed(cluster, renders, attribution, counts)) {
-      // Degraded: session deletions dropped. Emit only what survived.
-    }
+    // Degrade in place if the cluster would corrupt reject-all; emit survivors.
+    selfCheckFailsClosed(cluster, renders, attribution, counts);
     for (const r of renders) {
       const insert = r.deletion + r.addition;
       if (insert === r.expected) continue; // nothing markable survived
@@ -208,14 +210,40 @@ function selfCheckFailsClosed(
   const degraded = joinCluster(renders, cluster.interWs, (r) => r.deletion + r.addition);
   if (acceptResolve(degraded) !== acceptResolve(clusterSpan(cluster, (h) => h.added))) {
     const additionMark = `{${attribution}++`;
+    const substitutionMark = `{${attribution}~~`;
     for (const r of renders) {
-      counts.unsafeSkipped += r.addition.split(additionMark).length - 1;
-      counts.additions -= r.addition.split(additionMark).length - 1;
+      const adds = r.addition.split(additionMark).length - 1;
+      const subs = r.addition.split(substitutionMark).length - 1;
+      counts.unsafeSkipped += adds + subs;
+      counts.additions -= adds;
+      counts.substitutions -= subs;
       r.deletion = "";
       r.addition = r.expected; // insert === expected ⇒ no edit for this hunk
     }
   }
+
+  // Re-verify: if rejecting the degraded output still isn't a clean word
+  // subsequence of the baseline (a wrap mark that drifted onto identical words
+  // duplicates/reorders on reject — provably unrestorable by emission), flag
+  // the region so the tracking Notice can warn. Pure word loss stays a
+  // subsequence and is not flagged (it is the unsafeSkipped category).
+  const finalReject = rejectResolve(
+    joinCluster(renders, cluster.interWs, (r) => r.deletion + r.addition),
+  );
+  if (!isWordSubsequence(finalReject, clusterSpan(cluster, (h) => h.removed))) {
+    counts.unrestorableRegions++;
+  }
   return true;
+}
+
+/** True when every whitespace-separated word of `sub` appears, in order, within `full`. */
+function isWordSubsequence(sub: string, full: string): boolean {
+  const want = sub.match(/\S+/g) ?? [];
+  let i = 0;
+  for (const w of full.match(/\S+/g) ?? []) {
+    if (i < want.length && want[i] === w) i++;
+  }
+  return i === want.length;
 }
 
 /** Concatenate a per-hunk string with the common whitespace kept between hunks. */

@@ -80,7 +80,7 @@ The host plugin now lets the user create any of the five reviewable marks themse
 
 ## Tracking sessions
 
-The host plugin also has a "change tracking" mode: the user can start a session, edit freely, and stop it to turn their raw edits into attributed CriticMarkup marks in one pass. If a session might be active while you're working in a document, **write CriticMarkup marks, not raw edits** — a raw edit you make mid-session gets diffed against the baseline and attributed to the human when the session stops, not to you. A mark you insert is left untouched by that diff and keeps your own attribution.
+The host plugin also has a "change tracking" mode: the user can start a session, edit freely, and stop it to turn their raw edits into attributed CriticMarkup marks in one pass. If a session might be active while you're working in a document, **write CriticMarkup marks, not raw edits** — a raw edit you make mid-session gets diffed against the baseline and attributed to the human when the session stops, not to you. A mark you insert is left untouched by that diff and keeps your own attribution. A wrap-type mark placed directly next to identical words and combined with raw edits in the same region may not reject cleanly; the plugin detects this and reports "N region(s) could not be fully tracked" when the session stops.
 
 ## What good reviewer output looks like
 

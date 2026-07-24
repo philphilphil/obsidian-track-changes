@@ -625,5 +625,6 @@ function formatTrackingNotice(counts: TrackCounts): string {
   let msg = parts.length ? `Marked ${parts.join(", ")}.` : "Changes recorded.";
   if (counts.codeChanged) msg += ` ${counts.codeChanged} code change(s) left unmarked.`;
   if (counts.unsafeSkipped) msg += ` ${counts.unsafeSkipped} unsafe fragment(s) left unmarked.`;
+  if (counts.unrestorableRegions) msg += ` ${counts.unrestorableRegions} region(s) could not be fully tracked.`;
   return msg;
 }

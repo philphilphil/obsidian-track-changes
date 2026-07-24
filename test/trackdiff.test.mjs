@@ -169,7 +169,9 @@ const applyAll = (source, edits) => {
   return out;
 };
 
-// Resolve every CriticMarkup mark (session + manual) in a marked string.
+// Resolve every CriticMarkup mark (session + manual) in a marked string. These
+// must track finalizeEdits semantics (production rejectResolve/acceptResolve in
+// src/trackdiff.ts are the runtime source of truth for the cluster self-check).
 const acceptAll = (s) =>
   s
     .replace(/\{[^{}]*?~~[\s\S]*?~>([\s\S]*?)~~\}/g, "$1") // substitution → new
@@ -428,6 +430,20 @@ test("self-check degrades a newline-seam cluster instead of merging", () => {
   assert.equal(rejectAll(marked), rejectAll(cur));
   assert.equal(rejectAll(marked), "old beta");
   assert.ok(!/badold/.test(rejectAll(marked)), "no merged words");
+});
+
+// Residual unfixable class (fuzz seed-8): a wrap mark drifts onto identical
+// words mixed with raw edits, so reject-all duplicates `delta` and loses
+// `echo`. No emission can restore this — the self-check re-verification must
+// flag the region (unrestorableRegions) while accept-all stays exact.
+test("self-check flags an unrestorable region (wrap-mark drift onto identical words)", () => {
+  const base = "golf delta golf fox echo india charlie fox alpha";
+  const cur = "golf fox {--delta--} golf charlie fox";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.ok(r.counts.unrestorableRegions >= 1, "region flagged as not fully trackable");
+  // Reject cannot round-trip here (documented); accept-all is still exact.
+  assert.equal(acceptAll(marked), acceptAll(cur));
 });
 
 test("too many changes: tooManyChanges flag set, no edits", () => {
