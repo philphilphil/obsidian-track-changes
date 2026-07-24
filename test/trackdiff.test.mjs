@@ -393,6 +393,43 @@ test("wrap: wrap-mark before real deletion also round-trips", () => {
   assert.equal(acceptAll(marked), acceptAll(cur));
 });
 
+// Probe G: an adverse jsdiff seam would make the rendered deletions merge and
+// reorder words on reject. The per-cluster self-check must fail closed: drop
+// the unrestorable session deletions (unsafeSkipped) rather than corrupt.
+test("self-check degrades a corrupting cluster instead of merging words", () => {
+  const base = "foo bar old beta";
+  const cur = "{--old--} beta";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.equal(marked, cur, "degraded: no session marks added, current stands");
+  assert.equal(r.edits.length, 0);
+  assert.ok(!marked.includes(`{${PP}--`), "no session deletion emitted");
+  assert.equal(r.counts.unsafeSkipped, 2, "both undeletable session deletions counted");
+  assert.equal(r.counts.deletions, 0);
+  // Degradation, not corruption: reject equals current-with-pass-through-rejected,
+  // no merged/reordered words.
+  assert.equal(rejectAll(marked), rejectAll(cur));
+  assert.equal(rejectAll(marked), "old beta");
+  assert.ok(!/fooold|oldbar|barbeta/.test(rejectAll(marked)), "no merged words");
+});
+
+// Probe H: a newline seam. The deletion-body edge-trim drops the \n a survivor
+// needs; the self-check catches the resulting merge and degrades.
+test("self-check degrades a newline-seam cluster instead of merging", () => {
+  const base = "bad\nold beta";
+  const cur = "{--old--} beta";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.equal(marked, cur, "degraded: current stands");
+  assert.equal(r.edits.length, 0);
+  assert.ok(!marked.includes(`{${PP}--`), "no session deletion emitted");
+  assert.equal(r.counts.unsafeSkipped, 1);
+  assert.equal(r.counts.deletions, 0);
+  assert.equal(rejectAll(marked), rejectAll(cur));
+  assert.equal(rejectAll(marked), "old beta");
+  assert.ok(!/badold/.test(rejectAll(marked)), "no merged words");
+});
+
 test("too many changes: tooManyChanges flag set, no edits", () => {
   const base = Array.from({ length: 4000 }, (_, i) => `w${i}`).join(" ");
   const cur = Array.from({ length: 4000 }, (_, i) => `x${i}`).join(" ");

@@ -143,11 +143,14 @@ export function computeTrackEdits(
   // reversed it, hunks would degrade to separate del/add marks — still
   // round-trip safe, just less tidy.
   for (const cluster of buildClusters(parts, lenOf)) {
-    const wrapPool = wrappedBaselineWords(cluster);
-    const renders = cluster.map((h) =>
+    const wrapPool = wrappedBaselineWords(cluster.hunks);
+    const renders = cluster.hunks.map((h) =>
       renderHunk(h.removed, h.added, h.hunkStart, current, attribution, counts, wrapPool),
     );
     creditFreedSpaces(renders);
+    if (selfCheckFailsClosed(cluster, renders, attribution, counts)) {
+      // Degraded: session deletions dropped. Emit only what survived.
+    }
     for (const r of renders) {
       const insert = r.deletion + r.addition;
       if (insert === r.expected) continue; // nothing markable survived
@@ -161,6 +164,107 @@ export function computeTrackEdits(
     }
   }
   return { edits, counts, tooManyChanges: false };
+}
+
+/**
+ * Structural safety net (fail-closed). Only clusters carrying a pass-through
+ * mark can be corrupted by an adverse jsdiff seam — pure-prose clusters
+ * round-trip by construction. For those, project the cluster's rendered output
+ * through reject semantics and compare against the baseline text the cluster
+ * spans (removed tokens + the common whitespace between hunks). On mismatch the
+ * rendered deletions would merge/reorder words on reject, so we DROP every
+ * session deletion in the cluster (its removed text is simply unrestorable —
+ * the documented unsafe-skip category) and keep the pass-through marks and
+ * session additions/substitutions, whose accept side is exact by construction.
+ * Returns true when a degrade happened. Never throws: worst case some deletions
+ * go unmarked, which the tracking Notice already surfaces via unsafeSkipped.
+ */
+function selfCheckFailsClosed(
+  cluster: Cluster,
+  renders: HunkRender[],
+  attribution: string,
+  counts: TrackCounts,
+): boolean {
+  if (!cluster.hunks.some((h) => h.added.some((t) => t.kind === "mark"))) return false;
+
+  const rendered = joinCluster(renders, cluster.interWs, (r) => r.deletion + r.addition);
+  if (rejectResolve(rendered) === clusterSpan(cluster, (h) => h.removed)) return false;
+
+  const deletionMark = `{${attribution}--`;
+  for (const r of renders) {
+    if (r.deletion === "") continue;
+    const dropped = r.deletion.split(deletionMark).length - 1;
+    counts.unsafeSkipped += dropped;
+    counts.deletions -= dropped;
+    r.deletion = "";
+  }
+
+  // Dropping session deletions removes the only corruption source (additions
+  // reject-to-nothing, substitutions swap in place, pass-through marks are
+  // already in `current`). Belt-and-suspenders: if the surviving output no
+  // longer accepts back to the current text (never expected — additions/subs
+  // wrap current text in place), neutralize the whole cluster (emit nothing,
+  // leaving current untouched) so we can never corrupt.
+  const degraded = joinCluster(renders, cluster.interWs, (r) => r.deletion + r.addition);
+  if (acceptResolve(degraded) !== acceptResolve(clusterSpan(cluster, (h) => h.added))) {
+    const additionMark = `{${attribution}++`;
+    for (const r of renders) {
+      counts.unsafeSkipped += r.addition.split(additionMark).length - 1;
+      counts.additions -= r.addition.split(additionMark).length - 1;
+      r.deletion = "";
+      r.addition = r.expected; // insert === expected ⇒ no edit for this hunk
+    }
+  }
+  return true;
+}
+
+/** Concatenate a per-hunk string with the common whitespace kept between hunks. */
+function joinCluster(
+  renders: HunkRender[],
+  interWs: string[],
+  pick: (r: HunkRender) => string,
+): string {
+  let s = "";
+  for (let i = 0; i < renders.length; i++) {
+    s += pick(renders[i]);
+    if (i < interWs.length) s += interWs[i];
+  }
+  return s;
+}
+
+/** Baseline/current text the cluster spans: `pick` tokens plus inter-hunk whitespace. */
+function clusterSpan(cluster: Cluster, pick: (h: Hunk) => Token[]): string {
+  let s = "";
+  for (let i = 0; i < cluster.hunks.length; i++) {
+    s += pick(cluster.hunks[i]).map((t) => t.text).join("");
+    if (i < cluster.interWs.length) s += cluster.interWs[i];
+  }
+  return s;
+}
+
+// Reject/accept resolution of every CriticMarkup mark (session + pass-through) —
+// the single source of truth for the cluster self-check. Mirrors finalize
+// semantics: reject keeps deletion/highlight/aitext bodies and substitution old
+// sides and drops additions/comments.
+function rejectResolve(s: string): string {
+  return s
+    .replace(/\{[^{}]*?~~([\s\S]*?)~>[\s\S]*?~~\}/g, "$1")
+    .replace(/\{[^{}]*?\+\+[\s\S]*?\+\+\}/g, "")
+    .replace(/\{[^{}]*?--([\s\S]*?)--\}/g, "$1")
+    .replace(/\{[^{}]*?=\+([\s\S]*?)\+=\}/g, "$1")
+    .replace(/\{[^{}]*?==([\s\S]*?)==\}/g, "$1")
+    .replace(/\{[^{}]*?>>[\s\S]*?<<\}/g, "");
+}
+
+/** Accept resolution: keep addition/highlight/aitext bodies and substitution new sides, drop deletions/comments. */
+function acceptResolve(s: string): string {
+  return s
+    .replace(/\{[^{}]*?~~[\s\S]*?~>([\s\S]*?)~~\}/g, "$1")
+    .replace(/\{[^{}]*?\+\+([\s\S]*?)\+\+\}/g, "$1")
+    .replace(/\{[^{}]*?--[\s\S]*?--\}/g, "")
+    .replace(/\{[^{}]*?=\+([\s\S]*?)\+=\}/g, "$1")
+    .replace(/\{[^{}]*?==([\s\S]*?)==\}/g, "$1")
+    .replace(/\{[^{}]*?>>[\s\S]*?<<\}/g, "");
 }
 
 interface HunkRender {
@@ -204,6 +308,12 @@ interface Hunk {
   hunkStart: number; // offset into `current` where the added text begins
 }
 
+interface Cluster {
+  hunks: Hunk[];
+  /** Common whitespace kept between hunk[i] and hunk[i+1]; length hunks.length-1. */
+  interWs: string[];
+}
+
 /**
  * Partition the diff into clusters of change-hunks. A cluster is a maximal run
  * of hunks whose intervening common (unchanged) parts are all whitespace-only;
@@ -212,25 +322,34 @@ interface Hunk {
  * whitespace-separated hunks, so a wrap payload and the baseline text it
  * accounts for always share a cluster — while an identical word genuinely
  * deleted elsewhere sits behind a word-bearing common run, in its own cluster,
- * and is never suppressed.
+ * and is never suppressed. The inter-hunk whitespace is retained so the
+ * self-check can reconstruct the exact baseline text the cluster spans.
  */
 function buildClusters(
   parts: Array<{ added?: boolean; removed?: boolean; value: Token[] }>,
   lenOf: (t: Token[]) => number,
-): Hunk[][] {
-  const clusters: Hunk[][] = [];
-  let open: Hunk[] = [];
+): Cluster[] {
+  const clusters: Cluster[] = [];
+  let hunks: Hunk[] = [];
+  let interWs: string[] = [];
+  let pendingWs = ""; // ws-common seen since the last hunk (candidate inter-hunk gap)
   let breakBeforeNext = false;
   let cur = 0; // offset into `current`
   const flush = (): void => {
-    if (open.length > 0) clusters.push(open);
-    open = [];
+    if (hunks.length > 0) clusters.push({ hunks, interWs });
+    hunks = [];
+    interWs = [];
+    pendingWs = "";
   };
   let i = 0;
   while (i < parts.length) {
     const part = parts[i];
     if (!part.added && !part.removed) {
-      if (!part.value.every((t) => t.kind === "space")) breakBeforeNext = true;
+      if (part.value.every((t) => t.kind === "space")) {
+        pendingWs += part.value.map((t) => t.text).join("");
+      } else {
+        breakBeforeNext = true;
+      }
       cur += lenOf(part.value);
       i++;
       continue;
@@ -252,7 +371,9 @@ function buildClusters(
       flush();
       breakBeforeNext = false;
     }
-    open.push({ removed, added, hunkStart: cur });
+    if (hunks.length > 0) interWs.push(pendingWs);
+    pendingWs = "";
+    hunks.push({ removed, added, hunkStart: cur });
     cur += lenOf(added);
   }
   flush();
@@ -267,12 +388,12 @@ function buildClusters(
  * as a session deletion, so reject-all restores the baseline through the
  * pass-through mark alone. Scoped per cluster (see buildClusters).
  */
-function wrappedBaselineWords(cluster: Hunk[]): string[] {
+function wrappedBaselineWords(hunks: Hunk[]): string[] {
   const pool: string[] = [];
   const add = (payload: string): void => {
     for (const w of payload.match(/\S+/g) ?? []) pool.push(w);
   };
-  for (const h of cluster) {
+  for (const h of hunks) {
     for (const t of h.added) {
       if (t.kind !== "mark") continue;
       const node = parse(t.text).nodes[0];
