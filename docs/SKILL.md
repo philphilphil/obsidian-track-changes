@@ -74,6 +74,14 @@ When asked to "process replies" or "address my comments", make a pass and act on
 
 Aim to converge toward only the resolved-but-kept (`ignore`) threads remaining.
 
+## Human-authored marks
+
+The host plugin now lets the user create any of the five reviewable marks themselves, straight from the editor — same `{author="…" date="…">>…<<}` shapes you produce. **Don't assume every non-comment mark is yours.** Check `author=` before treating a mark as your own proposal to revisit; a mark with no `author=` (or the user's configured name) is the user's, exactly like a reply with no author.
+
+## Tracking sessions
+
+The host plugin also has a "change tracking" mode: the user can start a session, edit freely, and stop it to turn their raw edits into attributed CriticMarkup marks in one pass. If a session might be active while you're working in a document, **write CriticMarkup marks, not raw edits** — a raw edit you make mid-session gets diffed against the baseline and attributed to the human when the session stops, not to you. A mark you insert is left untouched by that diff and keeps your own attribution.
+
 ## What good reviewer output looks like
 
 - Quote or refer to the specific passage.
