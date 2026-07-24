@@ -11,14 +11,28 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import { applyEdits, rebaseEdits, buildAttributionPrefix, type SourceEdit } from "./operations";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
+import { buildMark, checkGuards, type AuthoringKind } from "./authoring";
 import {
   DEFAULT_SETTINGS,
   TrackChangesCriticMarkupSettingsTab,
   type TrackChangesCriticMarkupSettings,
 } from "./settings";
+
+const AUTHORING_COMMANDS: ReadonlyArray<{
+  id: string;
+  name: string;
+  kind: AuthoringKind;
+  icon: string;
+}> = [
+  { id: "insert-addition", name: "Insert addition", kind: "addition", icon: "plus" },
+  { id: "mark-deletion", name: "Mark selection as deletion", kind: "deletion", icon: "minus" },
+  { id: "mark-substitution", name: "Mark selection for substitution", kind: "substitution", icon: "pencil" },
+  { id: "mark-highlight", name: "Highlight selection", kind: "highlight", icon: "highlighter" },
+  { id: "insert-comment", name: "Insert comment", kind: "comment", icon: "message-square" },
+];
 
 export default class TrackChangesCriticMarkupPlugin extends Plugin {
   settings!: TrackChangesCriticMarkupSettings;
@@ -61,6 +75,43 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         return true;
       },
     });
+
+    // Manual authoring commands (issue #26). No default hotkeys — users bind
+    // their own via the Hotkeys pane.
+    for (const c of AUTHORING_COMMANDS) {
+      this.addCommand({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        editorCheckCallback: (checking, editor, view) => {
+          if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+          if (!checking) this.insertAuthoredMark(editor, c.kind);
+          return true;
+        },
+      });
+    }
+
+    // Right-click menu: only the actions valid for the current selection
+    // state, in their own separator section. (MenuItem.setSubmenu is not in
+    // the public API, so flat items instead of a submenu.)
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return;
+        const hasSelection = editor.somethingSelected();
+        const valid = AUTHORING_COMMANDS.filter((c) =>
+          c.kind === "comment" ? true : c.kind === "addition" ? !hasSelection : hasSelection,
+        );
+        menu.addSeparator();
+        for (const c of valid) {
+          menu.addItem((item) =>
+            item
+              .setTitle(c.name)
+              .setIcon(c.icon)
+              .onClick(() => this.insertAuthoredMark(editor, c.kind)),
+          );
+        }
+      }),
+    );
 
     // Ribbon for quick access.
     this.addRibbonIcon("message-square", "Open CriticMarkup review panel", () =>
@@ -195,6 +246,34 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       const view = this.getReviewView();
       if (file && view) view.focusOffset(file, offset);
     })();
+  }
+
+  // ---- manual authoring (issue #26) ----
+
+  private insertAuthoredMark(editor: Editor, kind: AuthoringKind): void {
+    const from = editor.posToOffset(editor.getCursor("from"));
+    const to = editor.posToOffset(editor.getCursor("to"));
+    const selection = editor.getSelection();
+
+    const attribution = buildAttributionPrefix(
+      this.settings.localAuthorName ?? "",
+      this.settings.replyDateStyle,
+    );
+    const built = buildMark(kind, selection, attribution);
+    if (!built.ok) {
+      new Notice(built.refusal);
+      return;
+    }
+    const guard = checkGuards(editor.getValue(), from, to, kind);
+    if (guard) {
+      new Notice(guard);
+      return;
+    }
+
+    // Single replaceSelection = one undo step; synchronous on the live
+    // editor, so no rebase is needed.
+    editor.replaceSelection(built.text);
+    editor.setCursor(editor.offsetToPos(from + built.cursorOffset));
   }
 
   // ---- editor edit application ----
