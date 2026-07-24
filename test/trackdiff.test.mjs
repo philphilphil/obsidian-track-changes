@@ -14,7 +14,7 @@ const out = await build({
 });
 const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
-const { tokenize, blockSplit } = mod;
+const { tokenize, blockSplit, computeTrackEdits } = mod;
 
 function test(name, fn) {
   try {
@@ -152,4 +152,90 @@ test("lossless on a mixed document fragment", () => {
 
 test("whitespace-only input: one separator", () => {
   assert.deepEqual(blockSplit("\n\n"), [{ text: "\n\n", sep: true }]);
+});
+
+console.log("done.");
+
+console.log("trackdiff computeTrackEdits:");
+
+const PP = 'date="2026-07-24"';
+const applyAll = (source, edits) => {
+  const sorted = [...edits].sort((a, b) => b.from - a.from);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    assert.ok(sorted[i + 1].to <= sorted[i].from, "edits overlap");
+  }
+  let out = source;
+  for (const e of sorted) out = out.slice(0, e.from) + e.insert + out.slice(e.to);
+  return out;
+};
+
+test("no changes: no edits", () => {
+  const r = computeTrackEdits("same text", "same text", PP);
+  assert.equal(r.edits.length, 0);
+});
+
+test("pure addition of words", () => {
+  const base = "the cat sat";
+  const cur = "the big cat sat";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(r.counts.additions, 1);
+  assert.equal(applyAll(cur, r.edits), `the {${PP}++big ++}cat sat`);
+});
+
+test("pure deletion of words", () => {
+  const base = "the big cat sat";
+  const cur = "the cat sat";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(r.counts.deletions, 1);
+  assert.equal(applyAll(cur, r.edits), `the {${PP}--big --}cat sat`);
+});
+
+test("replacement becomes a substitution", () => {
+  const base = "the red cat";
+  const cur = "the blue cat";
+  const r = computeTrackEdits(base, cur, PP);
+  assert.equal(r.counts.substitutions, 1);
+  // The space tokens around "blue" are common, so the mark wraps only the word.
+  assert.equal(applyAll(cur, r.edits), `the {${PP}~~red~>blue~~} cat`);
+});
+
+test("edits carry expected/before anchors", () => {
+  const r1 = computeTrackEdits("a b c", "a x c", PP);
+  assert.equal(r1.edits[0].expected, "x");
+  const r2 = computeTrackEdits("a b c", "a c", PP); // pure deletion → insertion edit
+  assert.equal(r2.edits[0].expected, "");
+  assert.ok(r2.edits[0].before.length > 0);
+});
+
+test("multi-block addition splits into per-block marks", () => {
+  const base = "start end";
+  const cur = "start one\n\ntwo end";
+  const r = computeTrackEdits(base, cur, PP);
+  const out = applyAll(cur, r.edits);
+  assert.equal(r.counts.additions, 2, "one mark per block chunk");
+  assert.ok(!/\+\+[^}]*\n[ \t]*\n[^{]*\+\+\}/.test(out), "no addition mark contains a blank line");
+});
+
+test("whitespace-only change: no edits", () => {
+  const r = computeTrackEdits("a b", "a  b", PP);
+  assert.equal(r.edits.length, 0);
+});
+
+test("accept-all yields current, reject-all yields baseline (simple prose)", () => {
+  const base = "one two three four five";
+  const cur = "one 2 three five six";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  // accept: additions keep text, deletions vanish, substitutions take new side
+  const accepted = marked
+    .replace(/\{[^{}]*?\+\+([\s\S]*?)\+\+\}/g, "$1")
+    .replace(/\{[^{}]*?--[\s\S]*?--\}/g, "")
+    .replace(/\{[^{}]*?~~[\s\S]*?~>([\s\S]*?)~~\}/g, "$1");
+  assert.equal(accepted, cur);
+  // reject: additions vanish, deletions keep text, substitutions take old side
+  const rejected = marked
+    .replace(/\{[^{}]*?\+\+[\s\S]*?\+\+\}/g, "")
+    .replace(/\{[^{}]*?--([\s\S]*?)--\}/g, "$1")
+    .replace(/\{[^{}]*?~~([\s\S]*?)~>[\s\S]*?~~\}/g, "$1");
+  assert.equal(rejected, base);
 });
