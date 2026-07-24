@@ -29,11 +29,13 @@ async function test(name, fn) {
 
 function memoryPersistence(initial = null) {
   let stored = initial;
-  return {
+  const p = {
     read: async () => stored,
-    write: async (data) => { stored = data; },
+    write: async (data) => { stored = data; p.writes++; },
     dump: () => stored,
+    writes: 0,
   };
+  return p;
 }
 
 console.log("session store:");
@@ -68,6 +70,21 @@ await (async () => {
     assert.equal(store.has("b.md"), false);
     assert.deepEqual(JSON.parse(p.dump()).sessions, {});
   });
+
+  const writesBeforeNoopEnd = p.writes;
+  await store.end("never-started.md");
+  await test("end on a never-started path is a no-op (no write)", () => {
+    assert.equal(store.has("never-started.md"), false);
+    assert.equal(p.writes, writesBeforeNoopEnd);
+  });
+
+  const writesBeforeNoopRename = p.writes;
+  await store.rename("never-started.md", "also-never.md");
+  await test("rename of a never-started path is a no-op (no write)", () => {
+    assert.equal(store.has("never-started.md"), false);
+    assert.equal(store.has("also-never.md"), false);
+    assert.equal(p.writes, writesBeforeNoopRename);
+  });
 })();
 
 await (async () => {
@@ -81,6 +98,19 @@ await (async () => {
     const p = memoryPersistence(JSON.stringify({ version: 1, sessions: { "gone.md": { baseline: "b", startedAt: "t" } } }));
     const store = await SessionStore.load(p, () => false);
     assert.equal(store.has("gone.md"), false);
+  });
+
+  await test("load keeps the surviving session and drops the dead one from a mixed set", async () => {
+    const p = memoryPersistence(JSON.stringify({
+      version: 1,
+      sessions: {
+        "alive.md": { baseline: "b1", startedAt: "t1" },
+        "dead.md": { baseline: "b2", startedAt: "t2" },
+      },
+    }));
+    const store = await SessionStore.load(p, (path) => path === "alive.md");
+    assert.equal(store.has("alive.md"), true);
+    assert.equal(store.has("dead.md"), false);
   });
 
   await test("load tolerates corrupt json", async () => {
