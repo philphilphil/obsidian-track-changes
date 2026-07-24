@@ -136,17 +136,54 @@ export function computeTrackEdits(
   if (!parts) return { edits, counts, tooManyChanges: true };
 
   const lenOf = (tokens: Token[]): number => tokens.reduce((n, t) => n + t.text.length, 0);
-  const wrapPool = wrappedBaselineWords(parts);
-  let cur = 0; // offset into `current`
 
+  // Cluster the hunks, then process each cluster against its own wrap pool.
   // jsdiff emits a removed part immediately before the added part it pairs
-  // with; the walk relies on that ordering to pair del+add into one hunk. If a
-  // future jsdiff reversed it, hunks would degrade to separate del/add marks —
-  // still round-trip safe, just less tidy.
+  // with; the pairing below relies on that ordering. If a future jsdiff
+  // reversed it, hunks would degrade to separate del/add marks — still
+  // round-trip safe, just less tidy.
+  for (const cluster of buildClusters(parts, lenOf)) {
+    const wrapPool = wrappedBaselineWords(cluster);
+    for (const h of cluster) {
+      emitHunk(h.removed, h.added, h.hunkStart, current, attribution, edits, counts, wrapPool);
+    }
+  }
+  return { edits, counts, tooManyChanges: false };
+}
+
+interface Hunk {
+  removed: Token[];
+  added: Token[];
+  hunkStart: number; // offset into `current` where the added text begins
+}
+
+/**
+ * Partition the diff into clusters of change-hunks. A cluster is a maximal run
+ * of hunks whose intervening common (unchanged) parts are all whitespace-only;
+ * a common part carrying any word/mark/code token is a hard boundary. jsdiff
+ * only ever scatters a mid-session wrap-mark's baseline fragments across such
+ * whitespace-separated hunks, so a wrap payload and the baseline text it
+ * accounts for always share a cluster — while an identical word genuinely
+ * deleted elsewhere sits behind a word-bearing common run, in its own cluster,
+ * and is never suppressed.
+ */
+function buildClusters(
+  parts: Array<{ added?: boolean; removed?: boolean; value: Token[] }>,
+  lenOf: (t: Token[]) => number,
+): Hunk[][] {
+  const clusters: Hunk[][] = [];
+  let open: Hunk[] = [];
+  let breakBeforeNext = false;
+  let cur = 0; // offset into `current`
+  const flush = (): void => {
+    if (open.length > 0) clusters.push(open);
+    open = [];
+  };
   let i = 0;
   while (i < parts.length) {
     const part = parts[i];
     if (!part.added && !part.removed) {
+      if (!part.value.every((t) => t.kind === "space")) breakBeforeNext = true;
       cur += lenOf(part.value);
       i++;
       continue;
@@ -164,28 +201,32 @@ export function computeTrackEdits(
       added = part.value;
       i++;
     }
-    cur = emitHunk(removed, added, cur, current, attribution, edits, counts, wrapPool);
+    if (breakBeforeNext) {
+      flush();
+      breakBeforeNext = false;
+    }
+    open.push({ removed, added, hunkStart: cur });
+    cur += lenOf(added);
   }
-  return { edits, counts, tooManyChanges: false };
+  flush();
+  return clusters;
 }
 
 /**
- * Words of the old-side payloads of every added-side pass-through mark — the
- * baseline text a mark authored mid-session already wraps (deletion body,
+ * Words of the old-side payloads of the cluster's added pass-through marks —
+ * the baseline text a mark authored mid-session already wraps (deletion body,
  * substitution old side, highlight body; additions/comments/aitext have no old
- * side). Built globally across the whole diff because jsdiff can scatter a
- * wrapped run's baseline words across several hunks. A removed word matching
- * this pool is suppressed rather than re-marked as a session deletion, so
- * reject-all restores the baseline through the pass-through mark alone.
+ * side). A removed word matching this pool is suppressed rather than re-marked
+ * as a session deletion, so reject-all restores the baseline through the
+ * pass-through mark alone. Scoped per cluster (see buildClusters).
  */
-function wrappedBaselineWords(parts: Array<{ added?: boolean; value: Token[] }>): string[] {
+function wrappedBaselineWords(cluster: Hunk[]): string[] {
   const pool: string[] = [];
   const add = (payload: string): void => {
     for (const w of payload.match(/\S+/g) ?? []) pool.push(w);
   };
-  for (const p of parts) {
-    if (!p.added) continue;
-    for (const t of p.value) {
+  for (const h of cluster) {
+    for (const t of h.added) {
       if (t.kind !== "mark") continue;
       const node = parse(t.text).nodes[0];
       if (!node) continue;
@@ -261,10 +302,12 @@ function isOneChunk(text: string): boolean {
  * suggestion); removed code tokens vanish (counted per-hunk in emitHunk);
  * plain text is block-split, chunks wrapped, interior separators kept so a
  * reject restores structure, edge separators dropped. A removed word whose
- * text a pass-through mark on the added side already wraps (its word is in
- * `wrapPool`) is dropped, so we never double-mark text a mid-session mark
- * accounts for. Removed code tokens and unsafe (delimiter-bearing) dropped
- * chunks are NOT restorable by reject-all — by design.
+ * text a pass-through mark in the same cluster already wraps (its word is in
+ * `wrapPool`) is dropped — along with one adjacent whitespace token so the gap
+ * closes without orphaning a leading/trailing space inside a deletion body —
+ * so we never double-mark text a mid-session mark accounts for. Removed code
+ * tokens and unsafe (delimiter-bearing) dropped chunks are NOT restorable by
+ * reject-all — by design.
  */
 function renderRemoved(
   removed: Token[],
@@ -272,22 +315,29 @@ function renderRemoved(
   counts: TrackCounts,
   wrapPool: string[],
 ): string {
+  const skip = new Set<number>();
+  for (let k = 0; k < removed.length; k++) {
+    if (removed[k].kind !== "word") continue;
+    const idx = wrapPool.indexOf(removed[k].text);
+    if (idx === -1) continue;
+    wrapPool.splice(idx, 1);
+    skip.add(k);
+    // Drop one adjacent space (prefer the following one) so suppression never
+    // leaves an orphaned space at a chunk edge.
+    if (removed[k + 1]?.kind === "space") skip.add(k + 1);
+    else if (removed[k - 1]?.kind === "space") skip.add(k - 1);
+  }
+
   const plain: string[] = [];
   let buf = "";
-  for (const t of removed) {
+  for (let k = 0; k < removed.length; k++) {
+    if (skip.has(k)) continue;
+    const t = removed[k];
     if (t.kind === "mark") {
       counts.marksPassedThrough++;
       continue;
     }
     if (t.kind === "code") continue;
-    if (t.kind === "word") {
-      const idx = wrapPool.indexOf(t.text);
-      if (idx !== -1) {
-        // A mid-session mark on the added side already wraps this baseline word.
-        wrapPool.splice(idx, 1);
-        continue;
-      }
-    }
     buf += t.text;
   }
   if (buf !== "") plain.push(buf);

@@ -169,6 +169,24 @@ const applyAll = (source, edits) => {
   return out;
 };
 
+// Resolve every CriticMarkup mark (session + manual) in a marked string.
+const acceptAll = (s) =>
+  s
+    .replace(/\{[^{}]*?~~[\s\S]*?~>([\s\S]*?)~~\}/g, "$1") // substitution → new
+    .replace(/\{[^{}]*?\+\+([\s\S]*?)\+\+\}/g, "$1") // addition → text
+    .replace(/\{[^{}]*?--[\s\S]*?--\}/g, "") // deletion → gone
+    .replace(/\{[^{}]*?=\+([\s\S]*?)\+=\}/g, "$1") // aitext → text
+    .replace(/\{[^{}]*?==([\s\S]*?)==\}/g, "$1") // highlight → text
+    .replace(/\{[^{}]*?>>[\s\S]*?<<\}/g, ""); // comment → gone
+const rejectAll = (s) =>
+  s
+    .replace(/\{[^{}]*?~~([\s\S]*?)~>[\s\S]*?~~\}/g, "$1") // substitution → old
+    .replace(/\{[^{}]*?\+\+[\s\S]*?\+\+\}/g, "") // addition → gone
+    .replace(/\{[^{}]*?--([\s\S]*?)--\}/g, "$1") // deletion → text
+    .replace(/\{[^{}]*?=\+([\s\S]*?)\+=\}/g, "$1") // aitext → text
+    .replace(/\{[^{}]*?==([\s\S]*?)==\}/g, "$1") // highlight → text
+    .replace(/\{[^{}]*?>>[\s\S]*?<<\}/g, ""); // comment → gone
+
 test("no changes: no edits", () => {
   const r = computeTrackEdits("same text", "same text", PP);
   assert.equal(r.edits.length, 0);
@@ -273,29 +291,92 @@ test("changed code block is left unmarked and counted once", () => {
   assert.equal(r.counts.codeChanged, 1, "one changed block counts once, not per side");
 });
 
+// A pass-through mark authored mid-session wraps baseline text. The session
+// diff must NOT re-mark that wrapped text, and reject-all must round-trip to
+// the exact baseline through the pass-through mark alone.
 test("wrap deletion added mid-session: no spurious session deletion", () => {
   const base = "the old cat sat";
   const cur = "the {--old--} cat sat";
   const r = computeTrackEdits(base, cur, PP);
-  assert.equal(applyAll(cur, r.edits), cur, "no double-marking");
-  assert.ok(!/\{[^{}]*--old--\}\{--old--\}/.test(applyAll(cur, r.edits)));
+  const marked = applyAll(cur, r.edits);
+  assert.equal(marked, cur, "no double-marking");
   assert.ok(!r.edits.some((e) => e.insert.includes(`{${PP}--`)), "no {PP-- session deletion emitted");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
 });
 
 test("wrap substitution added mid-session: old side not double-marked", () => {
   const base = "the old way";
   const cur = "the {~~old~>new~~} way";
   const r = computeTrackEdits(base, cur, PP);
-  assert.equal(applyAll(cur, r.edits), cur, "no double-marking");
+  const marked = applyAll(cur, r.edits);
+  assert.equal(marked, cur, "no double-marking");
   assert.ok(!r.edits.some((e) => e.insert.includes(`{${PP}--`)), "no {PP-- session deletion emitted");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
 });
 
 test("wrap highlight+comment added mid-session: anchor not double-marked", () => {
   const base = "note this phrase please";
   const cur = "note {==this phrase==}{>>hmm<<} please";
   const r = computeTrackEdits(base, cur, PP);
-  assert.equal(applyAll(cur, r.edits), cur, "no double-marking");
+  const marked = applyAll(cur, r.edits);
+  assert.equal(marked, cur, "no double-marking");
   assert.ok(!r.edits.some((e) => e.insert.includes(`{${PP}--`)), "no {PP-- session deletion emitted");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
+});
+
+// Probe A: an identical word ("old") is genuinely deleted in one place AND
+// wrapped by a manual mark elsewhere. Cluster scoping must mark the real
+// deletion while leaving the manual mark clean — global word-equality could not.
+test("wrap: identical word deleted elsewhere is still marked (cluster-scoped)", () => {
+  const base = "old alpha keeps going and later old beta stands";
+  const cur = "alpha keeps going and later {--old--} beta stands";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.ok(marked.includes(`{${PP}--old --}alpha`), "leading real deletion is marked");
+  assert.ok(!/\{[^{}]*--old--\}\{--old--\}/.test(marked), "manual mark not double-wrapped");
+  assert.ok(!marked.includes(`{${PP}--old--}{--old--}`), "no spurious mark beside manual mark");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
+});
+
+// Probe D: a whole sentence genuinely deleted, an identical sentence wrapped.
+test("wrap: identical sentence deleted elsewhere is still marked", () => {
+  const base = "the cat sat here. middle words stay. the cat sat here.";
+  const cur = "middle words stay. {--the cat sat here.--}";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.ok(marked.includes(`{${PP}--the cat sat here. --}`), "leading sentence marked, spacing intact");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
+});
+
+// Probe F: real deletion adjacent to a highlight+comment that wraps identical
+// words. Suppression must not orphan whitespace (no `{PP-- bad --}`).
+test("wrap: real deletion keeps whitespace; wrapped words not re-marked", () => {
+  const base = "remove the bad stuff now and keep the good stuff here";
+  const cur = "remove stuff now and keep {==the good==}{>>nice<<} stuff here";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.ok(marked.includes(`{${PP}--the bad --}`), "deletion whitespace intact, no orphan space");
+  assert.ok(!marked.includes(`{${PP}-- bad`), "no orphaned leading space in deletion body");
+  assert.ok(!marked.includes(`{${PP}--the--}`), "no spurious mark beside highlight");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
+});
+
+// Mirror order: the wrap mark comes BEFORE the real deletion in the document.
+test("wrap: wrap-mark before real deletion also round-trips", () => {
+  const base = "old alpha beta and old gone";
+  const cur = "{--old--} alpha beta and gone";
+  const r = computeTrackEdits(base, cur, PP);
+  const marked = applyAll(cur, r.edits);
+  assert.ok(!marked.includes(`{${PP}--old--}{--old--}`), "manual mark not double-wrapped");
+  assert.ok(marked.includes(`{${PP}--old --}gone`), "trailing real deletion is marked");
+  assert.equal(rejectAll(marked), base);
+  assert.equal(acceptAll(marked), acceptAll(cur));
 });
 
 test("too many changes: tooManyChanges flag set, no edits", () => {
