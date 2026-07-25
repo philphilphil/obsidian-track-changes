@@ -3,6 +3,7 @@ main.js
 *.log
 .DS_Store
 data.json
+sessions.json
 .hotreload
 docs/superpowers/
 docs/notes.md
