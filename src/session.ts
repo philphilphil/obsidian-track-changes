@@ -40,6 +40,7 @@ export class SessionStore {
       try {
         const data = JSON.parse(raw) as Partial<StoreFile>;
         if (data.version === 1 && data.sessions && typeof data.sessions === "object") {
+          let dropped = false;
           for (const [path, s] of Object.entries(data.sessions)) {
             if (
               fileExists(path) &&
@@ -48,8 +49,12 @@ export class SessionStore {
               typeof s.startedAt === "string"
             ) {
               store.sessions.set(path, { baseline: s.baseline, startedAt: s.startedAt });
+            } else {
+              dropped = true;
             }
           }
+          // Persist the pruning immediately so dead baselines don't linger on disk.
+          if (dropped) await store.save();
         }
       } catch {
         // Corrupt store: start empty rather than fail the plugin load.

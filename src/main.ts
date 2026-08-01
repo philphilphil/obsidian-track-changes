@@ -327,6 +327,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   // ---- manual authoring (issue #26) ----
 
   private insertAuthoredMark(editor: Editor, kind: AuthoringKind): void {
+    if (editor.listSelections().length > 1) {
+      new Notice("Multiple cursors are not supported; collapse to a single selection.");
+      return;
+    }
     const from = editor.posToOffset(editor.getCursor("from"));
     const to = editor.posToOffset(editor.getCursor("to"));
     const selection = editor.getSelection();
@@ -564,7 +568,11 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       return; // keep the session; do not end it
     }
     if (edits.length === 0) {
-      new Notice("No changes since tracking started.");
+      if (counts.codeChanged || counts.unsafeSkipped || counts.unrestorableRegions) {
+        new Notice(formatTrackingNotice(counts));
+      } else {
+        new Notice("No changes since tracking started.");
+      }
     } else {
       // requireAll: a partial apply must never silently destroy the baseline;
       // on failure we early-return and keep the session so the user can retry.

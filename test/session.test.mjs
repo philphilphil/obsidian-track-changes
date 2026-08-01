@@ -98,6 +98,8 @@ await (async () => {
     const p = memoryPersistence(JSON.stringify({ version: 1, sessions: { "gone.md": { baseline: "b", startedAt: "t" } } }));
     const store = await SessionStore.load(p, () => false);
     assert.equal(store.has("gone.md"), false);
+    assert.ok(p.writes > 0);
+    assert.deepEqual(JSON.parse(p.dump()).sessions, {});
   });
 
   await test("load keeps the surviving session and drops the dead one from a mixed set", async () => {
@@ -111,16 +113,22 @@ await (async () => {
     const store = await SessionStore.load(p, (path) => path === "alive.md");
     assert.equal(store.has("alive.md"), true);
     assert.equal(store.has("dead.md"), false);
+    assert.ok(p.writes > 0);
+    assert.equal(JSON.parse(p.dump()).sessions["dead.md"], undefined);
   });
 
   await test("load tolerates corrupt json", async () => {
-    const store = await SessionStore.load(memoryPersistence("{nope"), () => true);
+    const p = memoryPersistence("{nope");
+    const store = await SessionStore.load(p, () => true);
     assert.equal(store.has("x.md"), false);
+    assert.equal(p.writes, 0);
   });
 
   await test("load tolerates missing file", async () => {
-    const store = await SessionStore.load(memoryPersistence(null), () => true);
+    const p = memoryPersistence(null);
+    const store = await SessionStore.load(p, () => true);
     assert.equal(store.has("x.md"), false);
+    assert.equal(p.writes, 0);
   });
 })();
 
