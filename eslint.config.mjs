@@ -15,12 +15,4 @@ export default [
       "obsidianmd/ui/sentence-case": "off",
     },
   },
-  {
-    // These files create detached nodes in a specific document (`el.ownerDocument`,
-    // `activeDocument`) so popout windows render into their own document. Obsidian's
-    // window/Node helpers always build in the main document — `Node.prototype.createEl`
-    // additionally appends to the receiver, which throws on a Document.
-    files: ["src/reading.ts", "src/editor/decorations.ts"],
-    rules: { "obsidianmd/prefer-create-el": "off" },
-  },
 ];
