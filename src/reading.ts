@@ -116,7 +116,7 @@ class ParseCache {
     const fresh = parse(source);
     this.map.set(source, fresh);
     if (this.map.size > this.limit) {
-      const oldest = this.map.keys().next().value as string | undefined;
+      const oldest = this.map.keys().next().value;
       if (oldest !== undefined) this.map.delete(oldest);
     }
     return fresh;
