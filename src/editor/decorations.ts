@@ -80,7 +80,7 @@ class ThreadChipWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const chip = activeDocument.createElement("span");
+    const chip = createSpan();
     chip.className = `tc-chip tc-chip-${this.authorName ? "named" : "you"}`;
     chip.setAttr("data-tc-offset", String(this.offset));
     if (this.authorName) {
@@ -131,7 +131,7 @@ class SubArrowWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const span = activeDocument.createElement("span");
+    const span = createSpan();
     span.className = "tc-sub-arrow";
     span.setText(" → ");
     span.setAttr("data-tc-offset", String(this.offset));

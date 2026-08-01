@@ -279,7 +279,7 @@ export class ReviewPanelView extends ItemView {
 
   private renderHeader(file: TFile, parsed: ParseResult): void {
     const header = this.contentEl.createDiv({ cls: "tc-header" });
-    header.createEl("div", { cls: "tc-header-title", text: file.basename });
+    header.createDiv({ cls: "tc-header-title", text: file.basename });
     const counts = {
       threads: parsed.threads.length,
       suggestions: parsed.nodes.filter(
@@ -293,7 +293,7 @@ export class ReviewPanelView extends ItemView {
     if (counts.highlights > 0) {
       parts.push(`${counts.highlights} ${counts.highlights === 1 ? "highlight" : "highlights"}`);
     }
-    header.createEl("div", { cls: "tc-header-counts", text: parts.join(" · ") });
+    header.createDiv({ cls: "tc-header-counts", text: parts.join(" · ") });
   }
 
   private renderThreadCard(

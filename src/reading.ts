@@ -116,7 +116,7 @@ class ParseCache {
     const fresh = parse(source);
     this.map.set(source, fresh);
     if (this.map.size > this.limit) {
-      const oldest = this.map.keys().next().value as string | undefined;
+      const oldest = this.map.keys().next().value;
       if (oldest !== undefined) this.map.delete(oldest);
     }
     return fresh;
@@ -185,7 +185,7 @@ function handleFullyInterior(el: HTMLElement, node: CriticNode): void {
 
 /** Wrap all of `el`'s children in a `tc-aitext` span (whole-section AI body). */
 function wrapAllChildren(el: HTMLElement): void {
-  const span = el.ownerDocument.createElement("span");
+  const span = createSpan();
   span.className = "tc-aitext";
   while (el.firstChild) span.appendChild(el.firstChild);
   el.appendChild(span);
@@ -500,7 +500,7 @@ function applyLocated(
       const wantIcon = opts.showComments && iconTargets.has(idx);
       const insertion = removeSpan(doc, el, openRange ?? null, closeRange ?? null);
       if (wantIcon && insertion) {
-        const icon = makeCommentIcon(doc, parsed, idx, opts.localAuthorName ?? "");
+        const icon = makeCommentIcon(parsed, idx, opts.localAuthorName ?? "");
         if (icon) insertion.insertNode(icon);
       }
       return;
@@ -579,7 +579,7 @@ function wrapAiText(
     stripTokens();
     return;
   }
-  const span = doc.createElement("span");
+  const span = createSpan();
   span.className = "tc-aitext";
   const body = doc.createRange();
   body.setStart(start.node, start.offset);
@@ -625,7 +625,6 @@ function endOfElement(el: HTMLElement): TextPos | null {
 // ---------- Comment icon ----------
 
 function makeCommentIcon(
-  doc: Document,
   parsed: ParseResult,
   rootCommentIdx: number,
   localAuthorName: string,
@@ -635,7 +634,7 @@ function makeCommentIcon(
   const threadIdx = parsed.nodeThread[rootCommentIdx];
   const thread = threadIdx >= 0 ? parsed.threads[threadIdx] : null;
 
-  const span = doc.createElement("span");
+  const span = createSpan();
   span.className = "tc-rm-comment";
   setIcon(span, "message-square-text");
 
@@ -818,7 +817,7 @@ function cleanLiteralTokens(el: HTMLElement, opts: ReadingOptions): void {
 
   for (const t of targets) {
     const src = t.nodeValue ?? "";
-    const frag = doc.createDocumentFragment();
+    const frag = createFragment();
     let lastIndex = 0;
     let m: RegExpExecArray | null;
     LITERAL_MARKUP_RE.lastIndex = 0;
@@ -846,18 +845,18 @@ function renderLiteralMatch(
   const aitext = m[7];
   if (comment !== undefined) {
     if (!opts.showComments) return null;
-    return makeFallbackIcon(doc, comment, opts.localAuthorName ?? "");
+    return makeFallbackIcon(comment, opts.localAuthorName ?? "");
   }
   if (addition !== undefined) return doc.createTextNode(addition);
   if (deletion !== undefined) return null;
   if (subNew !== undefined) return doc.createTextNode(subNew);
   if (highlight !== undefined) {
-    const mark = doc.createElement("mark");
+    const mark = createEl("mark");
     mark.textContent = highlight;
     return mark;
   }
   if (aitext !== undefined) {
-    const span = doc.createElement("span");
+    const span = createSpan();
     span.className = "tc-aitext";
     span.textContent = aitext;
     return span;
@@ -865,7 +864,7 @@ function renderLiteralMatch(
   return null;
 }
 
-function makeFallbackIcon(doc: Document, body: string, localAuthorName: string): HTMLElement {
+function makeFallbackIcon(body: string, localAuthorName: string): HTMLElement {
   // No parser context here — emit a single icon per comment with the body as
   // its tooltip. Thread grouping and the metadata prefix need the parser; the
   // source-aware path handles those. This is the degraded mode: the prefix was
@@ -876,7 +875,7 @@ function makeFallbackIcon(doc: Document, body: string, localAuthorName: string):
   const text = am ? body.slice(am[0].length).trim() : body.trim();
   const local = localAuthorName.trim();
   const author = authorName ?? (local !== "" ? local : "You");
-  const span = doc.createElement("span");
+  const span = createSpan();
   span.className = "tc-rm-comment";
   setIcon(span, "message-square-text");
   const tip = `${author}: ${text}`;
