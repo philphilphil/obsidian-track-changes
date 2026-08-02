@@ -251,6 +251,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   // ---- manual authoring (issue #26) ----
 
   private insertAuthoredMark(editor: Editor, kind: AuthoringKind): void {
+    if (editor.listSelections().length > 1) {
+      new Notice("Multiple cursors are not supported; collapse to a single selection.");
+      return;
+    }
     const from = editor.posToOffset(editor.getCursor("from"));
     const to = editor.posToOffset(editor.getCursor("to"));
     const selection = editor.getSelection();
