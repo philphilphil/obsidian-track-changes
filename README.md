@@ -4,7 +4,7 @@ Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side 
 
 ![Track Changes panel showing multi-author comments from Claude and GPT](docs/screenshot.png)
 
-Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` in your notes, you review them here. A sixth mark, `{=+…+=}`, flags AI-inserted text with a subtle rainbow highlight — visual only, no review card.
+Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` in your notes, you review them here. A sixth mark, `{=+…+=}`, flags AI-inserted text with a subtle rainbow highlight — visual only, no review card. You can leave the same marks yourself, via commands or the *Track changes* right-click submenu, so human edits sit alongside the AI's in one review.
 
 [`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md) is a starting-point reviewer skill you can hand your agent.
 
@@ -14,7 +14,7 @@ Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~
 - Threaded comments (adjacent `{>>…<<}` blocks), multi-author colors
 - Per-mark metadata — `author="…" date="…"` prefixes on any mark drive the author colors and dates
 - Accept / reject per mark, reply inline, delete per message or thread
-- **Human authoring** — insert or mark selections as any of the five CriticMarkup forms yourself, from the command palette or right-click menu, stamped with your name and date like a reply
+- **Human authoring** — insert or mark selections as any of the five CriticMarkup forms yourself, from the command palette or the *Track changes* right-click submenu, stamped with your name and date like a reply
 - **Finalize for publish** — resolves all remaining markup in one pass
 - Reading mode: accepted preview or raw side-by-side
 - Code blocks left alone
@@ -30,7 +30,7 @@ Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~
 
 - *Open review panel*
 - *Finalize for publish* — accept additions, drop deletions and comments, etc.
-- *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also available via right-click in the editor
+- *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also under *Track changes* in the editor's right-click menu
 
 ## Install
 
