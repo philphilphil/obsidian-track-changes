@@ -6,6 +6,8 @@ Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side 
 
 Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` in your notes, you review them here. A sixth mark, `{=+…+=}`, flags AI-inserted text with a subtle rainbow highlight — visual only, no review card. You can leave the same marks yourself, via commands or the *Track changes* right-click submenu, so human edits sit alongside the AI's in one review.
 
+![Each CriticMarkup form as raw syntax next to its rendering in Live Preview](docs/syntax_showcase.png)
+
 [`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md) is a starting-point reviewer skill you can hand your agent.
 
 ## Features
