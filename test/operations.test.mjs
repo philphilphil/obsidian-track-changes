@@ -30,6 +30,7 @@ const {
   acceptSubstitution,
   rejectSubstitution,
   appendReply,
+  buildAttributionPrefix,
   validateReplyText,
   deleteCommentNode,
   deleteThread,
@@ -194,6 +195,26 @@ test("finalizeEdits with accept-all", () => {
   const opts = { additions: "accept", deletions: "accept", substitutions: "accept", stripHighlights: true };
   const out = applyEdits(src, finalizeEdits(r, opts));
   assert.equal(out, "a x b  c n d");
+});
+
+test("buildAttributionPrefix: date only when no author", () => {
+  const p = buildAttributionPrefix("", "date", new Date(2026, 6, 24, 12, 0, 0));
+  assert.equal(p, 'date="2026-07-24"');
+});
+
+test("buildAttributionPrefix: author + date when name set", () => {
+  const p = buildAttributionPrefix("Phil", "date", new Date(2026, 6, 24));
+  assert.equal(p, 'author="Phil" date="2026-07-24"');
+});
+
+test("buildAttributionPrefix: datetime style", () => {
+  const p = buildAttributionPrefix("", "datetime", new Date(Date.UTC(2026, 6, 24, 12, 23, 46)));
+  assert.equal(p, 'date="2026-07-24T12:23:46Z"');
+});
+
+test("buildAttributionPrefix: sanitizes and trims the name", () => {
+  const p = buildAttributionPrefix('  P{h}i"l\n ', "date", new Date(2026, 6, 24));
+  assert.equal(p, 'author="Phil" date="2026-07-24"');
 });
 
 console.log("done.");

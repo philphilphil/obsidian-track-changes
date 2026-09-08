@@ -14,6 +14,7 @@ Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~
 - Threaded comments (adjacent `{>>…<<}` blocks), multi-author colors
 - Per-mark metadata — `author="…" date="…"` prefixes on any mark drive the author colors and dates
 - Accept / reject per mark, reply inline, delete per message or thread
+- **Human authoring** — insert or mark selections as any of the five CriticMarkup forms yourself, from the command palette or right-click menu, stamped with your name and date like a reply
 - **Finalize for publish** — resolves all remaining markup in one pass
 - Reading mode: accepted preview or raw side-by-side
 - Code blocks left alone
@@ -29,6 +30,7 @@ Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~
 
 - *Open review panel*
 - *Finalize for publish* — accept additions, drop deletions and comments, etc.
+- *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also available via right-click in the editor
 
 ## Install
 

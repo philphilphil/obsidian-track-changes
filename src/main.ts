@@ -5,20 +5,36 @@ import {
   TFile,
   Notice,
   Editor,
+  Menu,
+  MenuItem,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import { applyEdits, rebaseEdits, buildAttributionPrefix, type SourceEdit } from "./operations";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
+import { buildMark, checkGuards, type AuthoringKind } from "./authoring";
 import {
   DEFAULT_SETTINGS,
   TrackChangesCriticMarkupSettingsTab,
   type TrackChangesCriticMarkupSettings,
 } from "./settings";
+
+const AUTHORING_COMMANDS: ReadonlyArray<{
+  id: string;
+  name: string;
+  kind: AuthoringKind;
+  icon: string;
+}> = [
+  { id: "insert-addition", name: "Insert addition", kind: "addition", icon: "plus" },
+  { id: "mark-deletion", name: "Mark selection as deletion", kind: "deletion", icon: "minus" },
+  { id: "mark-substitution", name: "Mark selection for substitution", kind: "substitution", icon: "pencil" },
+  { id: "mark-highlight", name: "Highlight selection", kind: "highlight", icon: "highlighter" },
+  { id: "insert-comment", name: "Insert comment", kind: "comment", icon: "message-square" },
+];
 
 export default class TrackChangesCriticMarkupPlugin extends Plugin {
   settings!: TrackChangesCriticMarkupSettings;
@@ -61,6 +77,61 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         return true;
       },
     });
+
+    // Manual authoring commands (issue #26). No default hotkeys — users bind
+    // their own via the Hotkeys pane.
+    for (const c of AUTHORING_COMMANDS) {
+      this.addCommand({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        // Enabled for any markdown editor regardless of selection state: a
+        // hotkey pressed in the wrong state should explain itself through the
+        // Notice from insertAuthoredMark, not silently do nothing.
+        editorCheckCallback: (checking, editor, view) => {
+          if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+          if (!checking) this.insertAuthoredMark(editor, c.kind);
+          return true;
+        },
+      });
+    }
+
+    // Right-click menu: a "Track changes" submenu with only the actions valid
+    // for the current selection state. MenuItem.setSubmenu is not in the
+    // public typings but exists at runtime on desktop; flat items otherwise.
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, view) => {
+        if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return;
+        const hasSelection = editor.somethingSelected();
+        const valid = AUTHORING_COMMANDS.filter((c) =>
+          c.kind === "comment" ? true : c.kind === "addition" ? !hasSelection : hasSelection,
+        );
+        const addItems = (target: Menu): void => {
+          for (const c of valid) {
+            target.addItem((item) =>
+              item
+                .setTitle(c.name)
+                .setIcon(c.icon)
+                .onClick(() => this.insertAuthoredMark(editor, c.kind)),
+            );
+          }
+        };
+        menu.addSeparator();
+        const hasSubmenu =
+          typeof (MenuItem.prototype as { setSubmenu?: unknown }).setSubmenu === "function";
+        if (hasSubmenu) {
+          menu.addItem((item) => {
+            const submenu = (item as MenuItem & { setSubmenu: () => Menu })
+              .setTitle("Track changes")
+              .setIcon("message-square")
+              .setSubmenu();
+            addItems(submenu);
+          });
+        } else {
+          addItems(menu);
+        }
+      }),
+    );
 
     // Ribbon for quick access.
     this.addRibbonIcon("message-square", "Open CriticMarkup review panel", () =>
@@ -195,6 +266,53 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       const view = this.getReviewView();
       if (file && view) view.focusOffset(file, offset);
     })();
+  }
+
+  // ---- manual authoring (issue #26) ----
+
+  private insertAuthoredMark(editor: Editor, kind: AuthoringKind): void {
+    if (editor.listSelections().length > 1) {
+      new Notice("Multiple cursors are not supported; collapse to a single selection.");
+      return;
+    }
+    const from = editor.posToOffset(editor.getCursor("from"));
+    const to = editor.posToOffset(editor.getCursor("to"));
+    const selection = editor.getSelection();
+
+    const attribution = buildAttributionPrefix(
+      this.settings.localAuthorName ?? "",
+      this.settings.replyDateStyle,
+    );
+    const built = buildMark(kind, selection, attribution);
+    if (!built.ok) {
+      new Notice(built.refusal);
+      return;
+    }
+    const guard = checkGuards(editor.getValue(), from, to, kind);
+    if (guard) {
+      new Notice(guard);
+      return;
+    }
+
+    // Insert and place the cursor in ONE dispatch. Done as two steps, Live
+    // Preview sees the intermediate state, hides the mark's `~~`/`==` as
+    // strikethrough/highlight formatting, and a cursor then set at the start
+    // of that hidden token gets pushed past it — into `~~}` instead of the
+    // replacement slot.
+    const cursor = from + built.cursorOffset;
+    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    if (cm) {
+      cm.dispatch({
+        changes: { from, to, insert: built.text },
+        selection: { anchor: cursor },
+        scrollIntoView: true,
+      });
+    } else {
+      editor.transaction({
+        changes: [{ from: editor.offsetToPos(from), to: editor.offsetToPos(to), text: built.text }],
+        selection: { from: editor.offsetToPos(cursor) },
+      });
+    }
   }
 
   // ---- editor edit application ----
