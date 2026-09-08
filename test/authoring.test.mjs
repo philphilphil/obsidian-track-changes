@@ -16,6 +16,19 @@ const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
 const { buildMark, checkGuards } = mod;
 
+const parserOut = await build({
+  entryPoints: [resolve(__dirname, "../src/parser.ts")],
+  bundle: true,
+  format: "esm",
+  target: "es2018",
+  write: false,
+  platform: "node",
+});
+const parserMod = await import(
+  "data:text/javascript;base64," + Buffer.from(parserOut.outputFiles[0].text).toString("base64")
+);
+const { parse } = parserMod;
+
 function test(name, fn) {
   try {
     fn();
@@ -93,6 +106,70 @@ test("comment with selection: bare anchor + attributed comment, cursor in body",
   assert.equal(r.cursorOffset, "{==anchor me==}".length + 1 + P.length + 2);
 });
 
+console.log("authoring round-trip:");
+
+// Build a mark, drop it into surrounding prose, parse it back. The trailing-
+// delimiter cases only survive because the parser closes on the FIRST closing
+// run — pin that here rather than trusting the builder's string alone.
+function roundTrip(kind, selection) {
+  const r = buildMark(kind, selection, P);
+  assert.ok(r.ok);
+  const source = "A " + r.text + " B";
+  return { source, nodes: parse(source).nodes };
+}
+
+function assertSingle(kind, selection) {
+  const { source, nodes } = roundTrip(kind, selection);
+  assert.equal(nodes.length, 1, `expected one node from ${source}`);
+  assert.equal(nodes[0].kind, kind);
+  assert.equal(source.slice(nodes[0].innerFrom, nodes[0].innerTo), selection);
+  return nodes[0];
+}
+
+test("round-trip: deletion ending in a dash", () => {
+  const n = assertSingle("deletion", "trailing dash-");
+  assert.equal(n.raw, `{${P}--trailing dash---}`);
+});
+
+test("round-trip: highlight ending in `=`", () => {
+  assertSingle("highlight", "ends with =");
+});
+
+test("round-trip: substitution whose old text ends in a tilde", () => {
+  const n = assertSingle("substitution", "tilde~ end");
+  assert.equal(n.oldText, "tilde~ end");
+  assert.equal(n.newText, "");
+});
+
+test("round-trip: deletion containing a brace", () => {
+  assertSingle("deletion", "brace } here");
+});
+
+test("round-trip: deletion containing a double quote", () => {
+  assertSingle("deletion", 'quote " here');
+});
+
+test("round-trip: nested mark collapses into the outer deletion", () => {
+  assertSingle("deletion", "has {++x++} inside");
+});
+
+test("round-trip: attribution survives the parser", () => {
+  const n = assertSingle("deletion", "kill me");
+  assert.equal(n.metaAuthor, "Phil");
+  assert.equal(n.metaDate, "2026-07-24");
+});
+
+test("round-trip: comment with selection yields anchor + comment", () => {
+  const { source, nodes } = roundTrip("comment", "anchor me");
+  assert.equal(nodes.length, 2);
+  assert.equal(nodes[0].kind, "highlight");
+  assert.equal(source.slice(nodes[0].innerFrom, nodes[0].innerTo), "anchor me");
+  assert.equal(nodes[0].metaAuthor, null); // the bare anchor carries no attribution
+  assert.equal(nodes[1].kind, "comment");
+  assert.equal(nodes[1].text, "");
+  assert.equal(nodes[1].metaAuthor, "Phil");
+});
+
 console.log("authoring guards:");
 
 test("guard: selection overlapping an existing mark is refused", () => {
@@ -136,9 +213,36 @@ test("guard: selection whose later line opens a block is refused", () => {
   assert.match(checkGuards(src2, 0, src2.length, "deletion"), /block/i);
 });
 
+test("guard: selection whose FIRST line is a heading is refused", () => {
+  const src = "# Heading\nbody text";
+  assert.match(checkGuards(src, 0, src.length, "deletion"), /block/i);
+  const src2 = "intro\n\n# Head\nbody";
+  assert.match(checkGuards(src2, 7, 17, "deletion"), /block/i);
+});
+
+test("guard: selection starting mid-heading is refused", () => {
+  const src = "# Head\nbody";
+  assert.match(checkGuards(src, 2, src.length, "deletion"), /block/i);
+});
+
+test("guard: selection whose first line is a table row is refused", () => {
+  const src = "| a | b |\nnext line";
+  assert.match(checkGuards(src, 0, src.length, "deletion"), /block/i);
+});
+
+test("guard: first line with lazy continuation is allowed", () => {
+  const src = "- item one\nplain follow";
+  assert.equal(checkGuards(src, 0, src.length, "deletion"), null);
+});
+
 test("guard: soft-wrapped selection within one paragraph is allowed", () => {
   const src = "line one\nline two";
   assert.equal(checkGuards(src, 0, src.length, "deletion"), null);
+});
+
+test("guard: single-line selection on a heading is allowed", () => {
+  const src = "# Heading here";
+  assert.equal(checkGuards(src, 2, src.length, "deletion"), null);
 });
 
 test("guard: selection containing the closing delimiter is refused", () => {

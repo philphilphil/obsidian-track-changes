@@ -5,6 +5,8 @@ import {
   TFile,
   Notice,
   Editor,
+  Menu,
+  MenuItem,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
@@ -83,6 +85,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         id: c.id,
         name: c.name,
         icon: c.icon,
+        // Enabled for any markdown editor regardless of selection state: a
+        // hotkey pressed in the wrong state should explain itself through the
+        // Notice from insertAuthoredMark, not silently do nothing.
         editorCheckCallback: (checking, editor, view) => {
           if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
           if (!checking) this.insertAuthoredMark(editor, c.kind);
@@ -91,9 +96,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       });
     }
 
-    // Right-click menu: only the actions valid for the current selection
-    // state, in their own separator section. (MenuItem.setSubmenu is not in
-    // the public API, so flat items instead of a submenu.)
+    // Right-click menu: a "Track changes" submenu with only the actions valid
+    // for the current selection state. MenuItem.setSubmenu is not in the
+    // public typings but exists at runtime on desktop; flat items otherwise.
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return;
@@ -101,14 +106,29 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const valid = AUTHORING_COMMANDS.filter((c) =>
           c.kind === "comment" ? true : c.kind === "addition" ? !hasSelection : hasSelection,
         );
+        const addItems = (target: Menu): void => {
+          for (const c of valid) {
+            target.addItem((item) =>
+              item
+                .setTitle(c.name)
+                .setIcon(c.icon)
+                .onClick(() => this.insertAuthoredMark(editor, c.kind)),
+            );
+          }
+        };
         menu.addSeparator();
-        for (const c of valid) {
-          menu.addItem((item) =>
-            item
-              .setTitle(c.name)
-              .setIcon(c.icon)
-              .onClick(() => this.insertAuthoredMark(editor, c.kind)),
-          );
+        const hasSubmenu =
+          typeof (MenuItem.prototype as { setSubmenu?: unknown }).setSubmenu === "function";
+        if (hasSubmenu) {
+          menu.addItem((item) => {
+            const submenu = (item as MenuItem & { setSubmenu: () => Menu })
+              .setTitle("Track changes")
+              .setIcon("message-square")
+              .setSubmenu();
+            addItems(submenu);
+          });
+        } else {
+          addItems(menu);
         }
       }),
     );
@@ -274,10 +294,25 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       return;
     }
 
-    // Single replaceSelection = one undo step; synchronous on the live
-    // editor, so no rebase is needed.
-    editor.replaceSelection(built.text);
-    editor.setCursor(editor.offsetToPos(from + built.cursorOffset));
+    // Insert and place the cursor in ONE dispatch. Done as two steps, Live
+    // Preview sees the intermediate state, hides the mark's `~~`/`==` as
+    // strikethrough/highlight formatting, and a cursor then set at the start
+    // of that hidden token gets pushed past it — into `~~}` instead of the
+    // replacement slot.
+    const cursor = from + built.cursorOffset;
+    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    if (cm) {
+      cm.dispatch({
+        changes: { from, to, insert: built.text },
+        selection: { anchor: cursor },
+        scrollIntoView: true,
+      });
+    } else {
+      editor.transaction({
+        changes: [{ from: editor.offsetToPos(from), to: editor.offsetToPos(to), text: built.text }],
+        selection: { from: editor.offsetToPos(cursor) },
+      });
+    }
   }
 
   // ---- editor edit application ----

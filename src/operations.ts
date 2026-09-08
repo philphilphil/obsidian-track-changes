@@ -205,13 +205,12 @@ export type ReplyDateStyle = "date" | "datetime";
 // local calendar day — UTC would read a day ahead in negative-offset zones near
 // midnight. "datetime" keeps Z because it carries an explicit zone.
 function formatReplyDate(style: ReplyDateStyle, now: Date = new Date()): string {
-  const d = now;
   if (style === "datetime") {
-    return `${d.toISOString().slice(0, 19)}Z`;
+    return `${now.toISOString().slice(0, 19)}Z`;
   }
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 

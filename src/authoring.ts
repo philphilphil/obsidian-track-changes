@@ -50,6 +50,8 @@ export function buildMark(kind: AuthoringKind, selection: string, attribution: s
       if (selection === "") {
         return { ok: true, text: `{${p}>><<}`, cursorOffset: 1 + p.length + 2 };
       }
+      // The anchor is only a pointer at the selected text, so it stays bare:
+      // the adjacent comment carries the attribution for the pair.
       const anchor = `{==${selection}==}`;
       return {
         ok: true,
@@ -62,6 +64,13 @@ export function buildMark(kind: AuthoringKind, selection: string, attribution: s
 
 /** Lines that open a new Markdown block — a mark delimiter ahead of one breaks the block. */
 export const BLOCK_MARKER_RE = /^ {0,3}(#{1,6}[ \t]|[-*+][ \t]|\d+[.)][ \t]|>|```|~~~|\|)/;
+
+/**
+ * Lines that end at their own newline — the next line necessarily starts a new
+ * block. Deliberately narrower than BLOCK_MARKER_RE: list items and `>` allow
+ * lazy continuation, so a following plain line is still the *same* block.
+ */
+const BLOCK_TERMINATOR_RE = /^ {0,3}(#{1,6}[ \t]|\|)/;
 
 // Substrings that would terminate (or, for `~>`, split) the mark early.
 const FORBIDDEN_IN_SELECTION: Record<AuthoringKind, string[]> = {
@@ -100,7 +109,13 @@ export function checkGuards(
   const lines = sel.split("\n");
   const crossesBlank = /\n[ \t]*\n/.test(sel);
   const laterMarker = lines.slice(1).some((l) => BLOCK_MARKER_RE.test(l));
-  if (crossesBlank || laterMarker) {
+  // Tested against the whole source line holding `from`, not the selected part
+  // of it, so a selection starting mid-heading is caught too.
+  const lineStart = source.lastIndexOf("\n", from - 1) + 1;
+  const firstLineEnds =
+    lines.length > 1 &&
+    BLOCK_TERMINATOR_RE.test(source.slice(lineStart, source.indexOf("\n", from)));
+  if (crossesBlank || laterMarker || firstLineEnds) {
     return "Selection spans more than one block; select within a single paragraph.";
   }
 
