@@ -22,6 +22,7 @@ import {
 
 import {
   parse,
+  anchorNodeIndexes,
   type CommentNode,
   type AdditionNode,
   type DeletionNode,
@@ -146,7 +147,7 @@ export class ReviewPanelView extends ItemView {
   focusOffset(file: TFile, offset: number): void {
     if (file !== this.currentFile) return;
     const card = this.contentEl.querySelector<HTMLElement>(
-      `[data-tc-card-offset="${offset}"]`,
+      `[data-tc-card-offset="${offset}"], [data-tc-card-anchor="${offset}"]`,
     );
     if (card) {
       card.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -256,6 +257,7 @@ export class ReviewPanelView extends ItemView {
     // Emit cards in document order. One card per thread (rooted at root
     // index); one card per non-comment node.
     const seenThreads = new Set<number>();
+    const anchored = anchorNodeIndexes(parsed);
     let threadNumber = 0;
     for (let i = 0; i < parsed.nodes.length; i++) {
       const n = parsed.nodes[i];
@@ -272,20 +274,24 @@ export class ReviewPanelView extends ItemView {
       } else if (n.kind === "substitution") {
         this.renderSubstitutionCard(list, file, source, n);
       } else if (n.kind === "highlight") {
-        this.renderHighlightCard(list, file, source, n);
+        // An anchored highlight is rendered by its thread's card.
+        if (!anchored.has(i)) this.renderHighlightCard(list, file, source, n);
       }
     }
   }
 
   private renderHeader(file: TFile, parsed: ParseResult): void {
     const header = this.contentEl.createDiv({ cls: "tc-header" });
+    const anchors = anchorNodeIndexes(parsed);
     header.createDiv({ cls: "tc-header-title", text: file.basename });
     const counts = {
       threads: parsed.threads.length,
       suggestions: parsed.nodes.filter(
         (n) => n.kind === "addition" || n.kind === "deletion" || n.kind === "substitution",
       ).length,
-      highlights: parsed.nodes.filter((n) => n.kind === "highlight").length,
+      highlights: parsed.nodes.filter(
+        (n, i) => n.kind === "highlight" && !anchors.has(i),
+      ).length,
     };
     const parts: string[] = [];
     parts.push(`${counts.threads} ${counts.threads === 1 ? "comment" : "comments"}`);
@@ -304,8 +310,14 @@ export class ReviewPanelView extends ItemView {
     thread: Thread,
     threadNumber: number,
   ): void {
+    const anchor =
+      thread.anchorIndex !== null
+        ? (parsed.nodes[thread.anchorIndex] as HighlightNode)
+        : null;
     const card = list.createDiv({ cls: "tc-card tc-card-thread" });
     card.setAttr("data-tc-card-offset", String(thread.from));
+    // Clicking the anchored span inline focuses this card, not a highlight card.
+    if (anchor) card.setAttr("data-tc-card-anchor", String(anchor.from));
     const isCollapsed = this.collapsedCards.has(thread.from);
     if (isCollapsed) card.addClass("tc-card-collapsed");
 
@@ -318,11 +330,18 @@ export class ReviewPanelView extends ItemView {
       }
       if (target.closest(".tc-card-actions, .tc-reply, button, textarea, input"))
         return;
-      this.host.revealOffset(file, thread.from, thread.to - thread.from, true);
+      // With an anchor, jump to the commented span rather than the chip.
+      const from = anchor ? anchor.from : thread.from;
+      this.host.revealOffset(file, from, thread.to - from, true);
     });
 
     const root = parsed.nodes[thread.rootIndex] as CommentNode;
     this.renderThreadHeader(card, source, thread, threadNumber, root);
+
+    if (anchor) {
+      const quote = card.createDiv({ cls: "tc-thread-anchor" });
+      this.renderTextInto(quote, anchor.text);
+    }
 
     const messages = card.createDiv({ cls: "tc-messages" });
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
@@ -348,13 +367,22 @@ export class ReviewPanelView extends ItemView {
       del.addEventListener("click", (e) => {
         e.stopPropagation();
         void (async () => {
+          const isOnlyMessage = thread.replyIndexes.length === 0;
           const confirmed = await this.confirmDestructiveAction(
             "Delete message",
-            "Remove this comment message from the note.",
+            anchor && isOnlyMessage
+              ? "Remove this comment from the note and unhighlight the text it points at."
+              : "Remove this comment message from the note.",
             "Delete",
           );
           if (!confirmed) return;
-          await this.host.applyEdits(file, [deleteCommentNode(c)]);
+          // Dropping the last message would leave the anchor as an orphan
+          // highlight card, so it goes with it.
+          const edits =
+            anchor && isOnlyMessage
+              ? [removeHighlight(anchor), deleteCommentNode(c)]
+              : [deleteCommentNode(c)];
+          await this.host.applyEdits(file, edits);
         })();
       });
 
@@ -407,11 +435,15 @@ export class ReviewPanelView extends ItemView {
       void (async () => {
         const confirmed = await this.confirmDestructiveAction(
           "Delete thread",
-          "Remove this entire comment thread from the note.",
+          anchor
+            ? "Remove this entire comment thread from the note and unhighlight the text it points at."
+            : "Remove this entire comment thread from the note.",
           "Delete thread",
         );
         if (!confirmed) return;
-        await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
+        const edits = [deleteThread(this.currentSource, thread)];
+        if (anchor) edits.unshift(removeHighlight(anchor));
+        await this.host.applyEdits(file, edits);
       })();
     });
   }

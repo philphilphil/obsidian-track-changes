@@ -31,6 +31,7 @@ Guidance:
 - Place the annotation immediately after the passage it refers to — same paragraph if it fits, otherwise the next line. No blank line in between, or threading breaks.
 - Don't modify the surrounding text. Insert markup only.
 - **Comments are the default.** Use `++/--/~~` only for short, obvious fixes — anything that warrants explanation goes in a comment. Use `==` sparingly, only when you can't form a useful comment. A bare suggestion or highlight without rationale is noise.
+- To point a comment at an exact span, put a highlight **directly** before it — `{==the span==}{author="Claude">>why<<}`, nothing between them but spaces. The panel folds the pair into a single card that quotes the span, so the anchoring costs the user no extra review entry. Any gap (prose, a newline) splits them back into two cards.
 
 ### AI-added text (`{=+ … +=}`) — not a review mark
 
@@ -63,7 +64,7 @@ The prefix sits **outside** the payload delimiters, so accept / reject / finaliz
 
 Effective author resolves: `author="…"` → host's configured local-author name → "You".
 
-Adjacent `{>>...<<}` blocks (no blank line between, same paragraph) form one thread; the prefix lives outside the `>>`/`<<` delimiters, so it doesn't affect threading. **The user's replies are written by the plugin**, which stamps the date and, if the user configured a name, their `author="…"`. So treat any reply with **no `author=`** (or one carrying the user's configured name) as the **user's**, not yours — never stamp the user's name or invent dates yourself.
+Adjacent `{>>...<<}` blocks (no blank line between, same paragraph) form one thread; the prefix lives outside the `>>`/`<<` delimiters, so it doesn't affect threading. A `{==…==}` highlight directly before the root is the thread's **anchor**, not a thread member — replies still attach after the last comment. **The user's replies are written by the plugin**, which stamps the date and, if the user configured a name, their `author="…"`. So treat any reply with **no `author=`** (or one carrying the user's configured name) as the **user's**, not yours — never stamp the user's name or invent dates yourself.
 
 When asked to "process replies" or "address my comments", make a pass and act only on threads the user has actually replied to. A comment with no reply is still waiting on them — leave it alone.
 

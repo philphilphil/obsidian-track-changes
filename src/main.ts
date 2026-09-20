@@ -470,7 +470,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         selection: revealMarkup ? { anchor: offset, head: offset + length } : undefined,
         effects: EditorView.scrollIntoView(offset, { y: "center" }),
       });
-      if (flashChip) this.flashChipAt(cm, offset);
+      if (flashChip) this.flashChipAt(cm, offset, length);
       return;
     }
     const from = editor.offsetToPos(offset);
@@ -479,15 +479,27 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     editor.scrollIntoView({ from, to }, true);
   }
 
-  private flashChipAt(cm: EditorView, offset: number): void {
+  /**
+   * Flash the comment chip inside the revealed range. The range start isn't
+   * always the chip itself: an anchored thread reveals from its `{==…==}`
+   * highlight, so the chip sits further in — hence the scan over the range
+   * rather than an exact-offset lookup.
+   */
+  private flashChipAt(cm: EditorView, offset: number, length = 0): void {
     // The chip may not be in the rendered viewport yet — CM6 renders
     // decorations lazily, and the scrollIntoView effect above triggers a
     // viewport update on the next measure cycle. Wait one frame so the chip
     // element exists in the DOM before we add the flash class.
     window.requestAnimationFrame(() => {
-      const chip = cm.dom.querySelector<HTMLElement>(
-        `.tc-chip[data-tc-offset="${offset}"]`,
-      );
+      const chips = cm.dom.querySelectorAll<HTMLElement>(".tc-chip[data-tc-offset]");
+      let chip: HTMLElement | null = null;
+      for (const c of Array.from(chips)) {
+        const at = Number(c.getAttribute("data-tc-offset"));
+        if (at >= offset && at <= offset + length) {
+          chip = c;
+          break;
+        }
+      }
       if (!chip) return;
       chip.removeClass("tc-chip-flash");
       // Force a reflow so re-adding the class restarts the animation if the

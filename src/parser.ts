@@ -92,6 +92,14 @@ export interface Thread {
   /** range covering the whole thread (root.from .. last.to) */
   from: number;
   to: number;
+  /**
+   * Node index of a `{==…==}` highlight sitting directly before the root (only
+   * inline whitespace between them): the span the thread is about. The panel
+   * folds it into the thread card instead of emitting a second card. `from`/`to`
+   * still cover the comments alone, so deleting a thread by range never touches
+   * the anchored prose.
+   */
+  anchorIndex: number | null;
 }
 
 export interface ParseResult {
@@ -441,12 +449,22 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
       }
     }
 
-    // start new thread
+    // Start a new thread, claiming a directly preceding highlight as its
+    // anchor — the `{==text==}{>>comment<<}` pairing both the authoring
+    // commands and the CriticMarkup convention produce.
+    const prev = i > 0 ? accepted[i - 1] : null;
+    const anchorIndex =
+      prev !== null &&
+      prev.kind === "highlight" &&
+      /^[ \t]*$/.test(source.slice(prev.to, n.from))
+        ? i - 1
+        : null;
     currentThread = {
       rootIndex: i,
       replyIndexes: [],
       from: n.from,
       to: n.to,
+      anchorIndex,
     };
     threads.push(currentThread);
     nodeThread[i] = threads.length - 1;
@@ -454,6 +472,19 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   }
 
   return { nodes: accepted, threads, nodeThread };
+}
+
+/**
+ * Node indexes of highlights claimed as thread anchors. They render inside
+ * their thread's card, so the panel skips their own highlight card and leaves
+ * them out of the highlight count.
+ */
+export function anchorNodeIndexes(result: ParseResult): Set<number> {
+  const out = new Set<number>();
+  for (const t of result.threads) {
+    if (t.anchorIndex !== null) out.add(t.anchorIndex);
+  }
+  return out;
 }
 
 /** Find the thread index whose range contains the given offset, or -1. */
