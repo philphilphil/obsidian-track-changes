@@ -52,3 +52,9 @@ A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank li
 - Source edits must be non-overlapping; `applyEdits` asserts this and throws on violation. Construct edits with that contract in mind.
 - When adding a new mutation, always set `expected` (and `before` for insertions) so it survives `rebaseEdits`.
 - Companion-agent behavior is documented in `docs/SKILL.md` (the example reviewer-skill template shipped with the plugin). When changing thread/prefix semantics, update both this file and that one.
+
+## Releases
+
+Bump `manifest.json`, add the version to `versions.json`, commit `release: <version>`, then `make release` (tags HEAD and pushes; the tag triggers the release workflow). Afterwards set the GitHub release notes with `gh release edit <version> --notes …`.
+
+Release notes are short, one line per change, in the form `Added: …` / `Fixed: …` / `Changed: …`, phrased for users (what they'll notice, not how it works). Append the issue number when there is one. No headings, no paragraphs, no rationale.
