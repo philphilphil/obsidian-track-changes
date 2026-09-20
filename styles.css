@@ -355,8 +355,19 @@ body {
 }
 .tc-card-collapsed .tc-messages,
 .tc-card-collapsed .tc-reply,
+.tc-card-collapsed .tc-thread-anchor,
 .tc-card-collapsed .tc-card-body {
   display: none;
+}
+/* The highlighted span a thread is anchored to, quoted inside its card. */
+.tc-thread-anchor {
+  background: var(--tc-highlight-bg);
+  border-left: 3px solid rgba(252, 211, 77, 0.8);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .tc-card-header {
   display: flex;

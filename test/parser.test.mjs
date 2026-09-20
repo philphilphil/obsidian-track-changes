@@ -19,7 +19,7 @@ const out = await build({
 });
 const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
-const { parse, threadAtOffset, nodeAtOffset } = mod;
+const { parse, threadAtOffset, nodeAtOffset, anchorNodeIndexes } = mod;
 
 function test(name, fn) {
   try {
@@ -107,6 +107,37 @@ test("comments separated by prose on the same line are separate threads", () => 
   assert.equal(r.threads.length, 2);
   assert.equal(r.threads[0].replyIndexes.length, 0);
   assert.equal(r.threads[1].replyIndexes.length, 0);
+});
+
+test("highlight directly before a thread root becomes its anchor", () => {
+  const r = parse('This {==word==}{author="Jeremy">>why?<<} matters.');
+  assert.equal(r.threads.length, 1);
+  const t = r.threads[0];
+  assert.equal(r.nodes[t.anchorIndex].kind, "highlight");
+  assert.equal(r.nodes[t.anchorIndex].text, "word");
+  // The thread range still covers the comments alone.
+  assert.equal(t.from, r.nodes[t.rootIndex].from);
+  assert.deepEqual([...anchorNodeIndexes(r)], [t.anchorIndex]);
+});
+
+test("inline whitespace between highlight and comment still anchors", () => {
+  const r = parse("x {==word==} \t {>>why?<<} y");
+  assert.equal(r.threads[0].anchorIndex, 0);
+});
+
+test("highlight separated from the comment by prose or a newline is not an anchor", () => {
+  assert.equal(parse("{==word==} and {>>why?<<}").threads[0].anchorIndex, null);
+  assert.equal(parse("{==word==}\n{>>why?<<}").threads[0].anchorIndex, null);
+  assert.equal(parse("{==word==}").threads.length, 0);
+});
+
+test("only the root claims an anchor; replies and other marks don't", () => {
+  const r = parse("{==word==}{>>a<<}{>>b<<}");
+  assert.equal(r.threads.length, 1);
+  assert.equal(r.threads[0].anchorIndex, 0);
+  assert.equal(r.threads[0].replyIndexes.length, 1);
+  assert.equal(parse("{++new++}{>>why?<<}").threads[0].anchorIndex, null);
+  assert.deepEqual([...anchorNodeIndexes(parse("{++new++}{>>why?<<}"))], []);
 });
 
 test("multi-author thread (Claude root, GPT reply) preserves both names", () => {
