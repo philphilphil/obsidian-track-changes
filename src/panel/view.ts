@@ -441,7 +441,9 @@ export class ReviewPanelView extends ItemView {
           "Delete thread",
         );
         if (!confirmed) return;
-        const edits = [deleteThread(this.currentSource, thread)];
+        // Render-time source, so a doc change while the dialog was open makes
+        // rebaseEdits fail closed instead of matching whatever text moved here.
+        const edits = [deleteThread(source, thread)];
         if (anchor) edits.unshift(removeHighlight(anchor));
         await this.host.applyEdits(file, edits);
       })();
