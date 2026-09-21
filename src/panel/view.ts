@@ -1,4 +1,4 @@
-// Right-side review panel. ItemView registered on a workspace leaf.
+// Per-window review panel. ItemView registered on a workspace leaf.
 //
 // Responsibilities:
 //   - Show one card per thread and per suggestion, in document order.
@@ -53,7 +53,7 @@ export const REVIEW_VIEW_TYPE = "tc-review-panel";
 
 export interface PanelHost {
   app: App;
-  /** Get the file the panel should display, or null if none. */
+  /** Get the file the panel should display in its window, or null if none. */
   getActiveFile(): TFile | null;
   /**
    * Get the current source for a file from the live editor if one is open,
@@ -71,7 +71,7 @@ export interface PanelHost {
    * whether the cursor also selects the markup (revealing its raw source).
    */
   revealOffset(file: TFile, offset: number, length: number, flashChip?: boolean): void;
-  /** True if the file is currently open in any markdown leaf. */
+  /** True if the file is currently open in a markdown leaf in this window. */
   isFileOpen(file: TFile): boolean;
   /**
    * Whether destructive panel actions (delete message / thread) should prompt
@@ -127,7 +127,11 @@ export class ReviewPanelView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.addClass("tc-panel");
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => this.onActiveFileChanged()),
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf?.view.containerEl.ownerDocument === this.containerEl.ownerDocument) {
+          this.onActiveFileChanged();
+        }
+      }),
     );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
@@ -158,8 +162,12 @@ export class ReviewPanelView extends ItemView {
     }
   }
 
-  private onActiveFileChanged(): void {
-    const file = this.host.getActiveFile();
+  getCurrentFile(): TFile | null {
+    return this.currentFile;
+  }
+
+  /** Follow this window's active file, or initialize from the originating leaf. */
+  onActiveFileChanged(file = this.host.getActiveFile()): void {
     // If no markdown file is active but the last one is still open in a tab,
     // keep showing it. The Terminal plugin's xterm canvas grabs focus inside
     // its leaf without always going through Obsidian's leaf-focus path, so

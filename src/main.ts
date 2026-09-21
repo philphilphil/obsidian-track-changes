@@ -1,6 +1,7 @@
 import {
   Plugin,
   MarkdownView,
+  FileView,
   WorkspaceLeaf,
   TFile,
   Notice,
@@ -47,7 +48,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    // Right-panel view registration.
+    // Per-window review panel registration.
     this.registerView(REVIEW_VIEW_TYPE, (leaf) => this.makeReviewView(leaf));
 
     // CodeMirror 6 inline decorations.
@@ -187,22 +188,32 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   }
 
   /** Repaint the per-character substitution highlight in open editors and the
-   * panel after the `highlightChangedChars` setting toggled. */
+   * panels after the `highlightChangedChars` setting toggled. */
   refreshCharHighlighting(): void {
     this.editorExtensions.length = 0;
     this.editorExtensions.push(this.makeDecorationExtension());
     this.app.workspace.updateOptions();
-    this.getReviewView()?.rebuildCards();
+    this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE).forEach((leaf) => {
+      if (leaf.view instanceof ReviewPanelView) leaf.view.rebuildCards();
+    });
   }
 
   /**
    * Refresh every render surface after a settings change that affects display
    * (e.g. localAuthorName). Re-runs reading-view post-processors and forces the
-   * open review panel to repaint so the "You"-fallback author/hue updates live.
+   * open review panels to repaint so the "You"-fallback author/hue updates live.
    */
   refreshAfterSettingsChange(): void {
     this.rerenderReadingViews();
-    this.getReviewView()?.rebuildCards();
+    this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE).forEach((leaf) => {
+      if (leaf.view instanceof ReviewPanelView) leaf.view.rebuildCards();
+    });
+  }
+
+  // Obsidian's suggested alternatives don't expose the originating leaf for
+  // non-markdown views; capture it before revealing a panel changes focus.
+  private getActiveLeaf(): WorkspaceLeaf | null {
+    return this.app.workspace.activeLeaf;
   }
 
   // ---- host implementation for the panel ----
@@ -211,21 +222,39 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     const host: PanelHost = {
       app: this.app,
       getActiveFile: () => {
-        const file = this.app.workspace.getActiveFile();
+        const document = leaf.view.containerEl.ownerDocument;
+        let activeLeaf = this.getActiveLeaf();
+        if (
+          !activeLeaf || activeLeaf.view.containerEl.ownerDocument !== document ||
+          !(activeLeaf.view instanceof FileView) || !activeLeaf.view.file
+        ) {
+          const leaves = this.app.workspace.getLeavesOfType("markdown").filter(
+            (candidate) => candidate.view.containerEl.ownerDocument === document,
+          );
+          const currentFile = leaf.view instanceof ReviewPanelView
+            ? leaf.view.getCurrentFile() : null;
+          activeLeaf = leaves.find(
+            (candidate) => candidate.view instanceof MarkdownView && candidate.view.file === currentFile,
+          ) ?? leaves[0] ?? null;
+        }
+        const file = activeLeaf?.view instanceof FileView ? activeLeaf.view.file : null;
         return file && file.extension === "md" ? file : null;
       },
       getCurrentSource: (file) => {
-        const editor = this.findEditorForFile(file);
+        const editor = this.findEditorForFile(file, leaf);
         if (!editor) return null;
         const cm = (editor as unknown as { cm?: EditorView }).cm;
         return cm ? cm.state.doc.toString() : editor.getValue();
       },
       applyEdits: async (file, edits) => {
-        await this.applyEditsToFile(file, edits);
+        await this.applyEditsToFile(file, edits, {}, leaf);
       },
       revealOffset: (file, offset, length, flashChip) =>
-        this.revealOffsetInEditor(file, offset, length, flashChip ?? false),
-      isFileOpen: (file) => this.findEditorForFile(file) !== null,
+        this.revealOffsetInEditor(file, offset, length, flashChip ?? false, leaf),
+      isFileOpen: (file) => this.app.workspace.getLeavesOfType("markdown").some(
+        (candidate) => candidate.view instanceof MarkdownView && candidate.view.file === file &&
+          candidate.view.containerEl.ownerDocument === leaf.view.containerEl.ownerDocument,
+      ),
       confirmBeforeDelete: () => this.settings.confirmBeforeDelete,
       highlightChangedChars: () => this.settings.highlightChangedChars,
       localAuthorName: () => this.settings.localAuthorName ?? "",
@@ -234,36 +263,63 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     return new ReviewPanelView(leaf, host);
   }
 
-  private async openReviewPanel(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
-    if (existing.length > 0) {
-      await this.app.workspace.revealLeaf(existing[0]);
+  private async openReviewPanel(targetLeaf = this.getActiveLeaf()): Promise<void> {
+    const workspace = this.app.workspace;
+    const file = targetLeaf?.view instanceof FileView ? targetLeaf.view.file : null;
+    // The root's container exists at runtime but is absent from public typings.
+    const mainDocument = (workspace.rootSplit as typeof workspace.rootSplit & {
+      containerEl: HTMLElement;
+    }).containerEl.ownerDocument;
+    const document = targetLeaf?.view.containerEl.ownerDocument ?? mainDocument;
+    const existing = workspace.getLeavesOfType(REVIEW_VIEW_TYPE).find(
+      (leaf) => leaf.view.containerEl.ownerDocument === document,
+    );
+    if (existing) {
+      if (file?.extension === "md" && existing.view instanceof ReviewPanelView) {
+        existing.view.onActiveFileChanged(file);
+      }
+      await workspace.revealLeaf(existing);
       return;
     }
-    const leaf = this.app.workspace.getRightLeaf(false);
+    // Pop-out windows have no sidebar. Split beside the originating leaf;
+    // main-window leaves (including sidebar leaves) use the right sidebar.
+    const leaf = targetLeaf && targetLeaf.getRoot() !== workspace.rootSplit &&
+      document !== mainDocument
+      ? workspace.createLeafBySplit(targetLeaf, "vertical")
+      : workspace.getRightLeaf(false);
     if (!leaf) {
       new Notice("Could not open review panel.");
       return;
     }
     await leaf.setViewState({ type: REVIEW_VIEW_TYPE, active: true });
-    await this.app.workspace.revealLeaf(leaf);
+    if (file?.extension === "md" && leaf.view instanceof ReviewPanelView) {
+      leaf.view.onActiveFileChanged(file);
+    }
+    await workspace.revealLeaf(leaf);
   }
 
-  private getReviewView(): ReviewPanelView | null {
+  private getReviewView(targetLeaf = this.getActiveLeaf()): ReviewPanelView | null {
     const leaves = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
+    let fallback: ReviewPanelView | null = null;
     for (const leaf of leaves) {
-      if (leaf.view instanceof ReviewPanelView) return leaf.view;
+      if (leaf.view instanceof ReviewPanelView) {
+        if (leaf.view.containerEl.ownerDocument === targetLeaf?.view.containerEl.ownerDocument) {
+          return leaf.view;
+        }
+        fallback ??= leaf.view;
+      }
     }
-    return null;
+    return fallback;
   }
 
   // ---- inline-click handler ----
 
   private handleInlineClick(offset: number): void {
+    const leaf = this.getActiveLeaf();
+    const file = leaf?.view instanceof FileView ? leaf.view.file : null;
     void (async () => {
-      await this.openReviewPanel();
-      const file = this.app.workspace.getActiveFile();
-      const view = this.getReviewView();
+      await this.openReviewPanel(leaf);
+      const view = this.getReviewView(leaf);
       if (file && view) view.focusOffset(file, offset);
     })();
   }
@@ -327,9 +383,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     file: TFile,
     edits: SourceEdit[],
     options: ApplyEditsOptions = {},
+    targetLeaf = this.getActiveLeaf(),
   ): Promise<boolean> {
     if (edits.length === 0) return true;
-    const editor = this.findEditorForFile(file);
+    const editor = this.findEditorForFile(file, targetLeaf);
     // `editor.cm` is undocumented but stable across Obsidian releases; it
     // exposes the underlying CM6 EditorView so our dispatch coalesces with
     // the user's normal undo stack.
@@ -351,13 +408,13 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         cm.dispatch({
           changes: prepared.edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
         });
-        this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
+        this.refreshReviewViews(file, cm.state.doc.toString());
         return true;
       }
       if (editor) {
         const next = applyEdits(currentSource, prepared.edits);
         editor.setValue(next);
-        this.getReviewView()?.refreshFromSource(file, next);
+        this.refreshReviewViews(file, next);
         return true;
       }
     }
@@ -384,8 +441,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     }
     this.showDroppedEdits(processDropped);
     new Notice("Updated file outside the editor undo history.");
-    this.getReviewView()?.refreshFromSource(file, next);
+    this.refreshReviewViews(file, next);
     return true;
+  }
+
+  private refreshReviewViews(file: TFile, source: string): void {
+    this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE).forEach((leaf) => {
+      if (leaf.view instanceof ReviewPanelView) leaf.view.refreshFromSource(file, source);
+    });
   }
 
   private prepareEdits(
@@ -420,15 +483,19 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     }
   }
 
-  private findEditorForFile(file: TFile): Editor | null {
+  private findEditorForFile(file: TFile, targetLeaf = this.getActiveLeaf()): Editor | null {
     const leaves = this.app.workspace.getLeavesOfType("markdown");
+    let fallback: Editor | null = null;
     for (const leaf of leaves) {
       const view = leaf.view;
       if (view instanceof MarkdownView && view.file === file) {
-        return view.editor;
+        if (view.containerEl.ownerDocument === targetLeaf?.view.containerEl.ownerDocument) {
+          return view.editor;
+        }
+        fallback ??= view.editor;
       }
     }
-    return null;
+    return fallback;
   }
 
   // ---- reveal/scroll ----
@@ -438,12 +505,13 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     offset: number,
     length: number,
     flashChip: boolean,
+    targetLeaf = this.getActiveLeaf(),
   ): void {
-    const editor = this.findEditorForFile(file);
+    const editor = this.findEditorForFile(file, targetLeaf);
     if (!editor) {
       // Open the file in a new leaf if not visible, then reveal.
       void this.app.workspace.openLinkText(file.path, "", false).then(() => {
-        const ed = this.findEditorForFile(file);
+        const ed = this.findEditorForFile(file, targetLeaf);
         if (ed) this.scrollEditor(ed, offset, length, flashChip);
       });
       return;
