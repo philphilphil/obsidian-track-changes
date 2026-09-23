@@ -9,15 +9,7 @@
 // apply-time (because the user typed, or the AI re-edited the file) would be
 // corrupted by stale offsets.
 
-import type {
-  CriticNode,
-  Thread,
-  ParseResult,
-  CommentNode,
-  AdditionNode,
-  DeletionNode,
-  SubstitutionNode,
-} from "./parser";
+import type { CriticNode, Thread, ParseResult, CommentNode, ChangeNode } from "./parser";
 
 export interface SourceEdit {
   from: number;
@@ -161,7 +153,7 @@ export function rejectSubstitution(node: CriticNode): SourceEdit {
   return { from: node.from, to: node.to, insert: node.oldText, expected: node.raw };
 }
 
-export type ChangeNode = AdditionNode | DeletionNode | SubstitutionNode;
+export type { ChangeNode };
 
 /** The first suggestion whose range contains `offset`, ends inclusive. */
 export function findChangeAt(nodes: CriticNode[], offset: number): ChangeNode | null {
@@ -194,6 +186,37 @@ export function rejectChange(node: ChangeNode): SourceEdit {
   }
 }
 
+function threadAnchoredOn(parsed: ParseResult, node: CriticNode): Thread | null {
+  return (
+    parsed.threads.find((t) => t.anchorIndex !== null && parsed.nodes[t.anchorIndex] === node) ??
+    null
+  );
+}
+
+/**
+ * Accept or reject a change, taking its anchored thread (its rationale) with
+ * it. The pair is one edit so a drifted doc rebases it all-or-nothing: a
+ * half-applied pair could re-anchor the orphaned thread on a neighbouring mark.
+ */
+export function resolveChange(
+  source: string,
+  parsed: ParseResult,
+  node: ChangeNode,
+  action: "accept" | "reject",
+): SourceEdit[] {
+  const edit = action === "accept" ? acceptChange(node) : rejectChange(node);
+  const thread = threadAnchoredOn(parsed, node);
+  if (!thread) return [edit];
+  return [
+    {
+      from: node.from,
+      to: thread.to,
+      insert: edit.insert + source.slice(node.to, thread.from),
+      expected: source.slice(node.from, thread.to),
+    },
+  ];
+}
+
 export type CursorAction = "accept" | "reject" | "remove-highlight" | "delete-comment";
 
 function indexOfKindAt(nodes: CriticNode[], offset: number, kind: CriticNode["kind"]): number {
@@ -203,10 +226,12 @@ function indexOfKindAt(nodes: CriticNode[], offset: number, kind: CriticNode["ki
 /**
  * Edits for `action` on the mark at `offset` (ends inclusive), or the Notice
  * text explaining why there are none. Mirrors the panel: an anchor highlight
- * is part of its thread's card, and deleting a thread's only message takes
- * the anchor with it.
+ * is part of its thread's card, deleting a thread's only message takes an
+ * anchor highlight (never a change) with it, and resolving a change takes its
+ * thread with it.
  */
 export function editsAtCursor(
+  source: string,
   parsed: ParseResult,
   offset: number,
   action: CursorAction,
@@ -216,7 +241,7 @@ export function editsAtCursor(
     case "reject": {
       const node = findChangeAt(parsed.nodes, offset);
       if (!node) return "No change at cursor.";
-      return [action === "accept" ? acceptChange(node) : rejectChange(node)];
+      return resolveChange(source, parsed, node, action);
     }
     case "remove-highlight": {
       const i = indexOfKindAt(parsed.nodes, offset, "highlight");
@@ -231,8 +256,9 @@ export function editsAtCursor(
       if (i === -1) return "No comment at cursor.";
       const thread = parsed.threads[parsed.nodeThread[i]];
       const edits = [deleteCommentNode(parsed.nodes[i])];
-      if (thread.anchorIndex !== null && thread.replyIndexes.length === 0) {
-        edits.unshift(removeHighlight(parsed.nodes[thread.anchorIndex]));
+      const anchor = thread.anchorIndex !== null ? parsed.nodes[thread.anchorIndex] : null;
+      if (anchor?.kind === "highlight" && thread.replyIndexes.length === 0) {
+        edits.unshift(removeHighlight(anchor));
       }
       return edits;
     }
@@ -350,6 +376,32 @@ export function appendReply(
     insert: reply,
     expected: "",
     before: last.raw,
+  };
+}
+
+const COMMENT_ANCHOR_CONTEXT = 40;
+
+/**
+ * Comment on a change: a new thread inserted directly after it, which the
+ * parser anchors on the change. `before` includes context ahead of the change
+ * so a stale insert can't relocate onto an identical mark nearby.
+ */
+export function appendComment(
+  source: string,
+  node: ChangeNode,
+  text: string,
+  localAuthorName = "",
+  dateStyle: ReplyDateStyle = "date",
+): SourceEdit {
+  const validationError = validateReplyText(text);
+  if (validationError) throw new Error(validationError);
+  const prefix = buildAttributionPrefix(localAuthorName, dateStyle);
+  return {
+    from: node.to,
+    to: node.to,
+    insert: `{${prefix}>>${text}<<}`,
+    expected: "",
+    before: source.slice(Math.max(0, node.from - COMMENT_ANCHOR_CONTEXT), node.to),
   };
 }
 

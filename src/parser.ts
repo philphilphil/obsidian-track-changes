@@ -10,7 +10,8 @@
 //
 // Thread rule: consecutive {>>...<<} blocks with only inline whitespace
 // (no blank line) between them in the same paragraph form a thread.
-// First block = root; subsequent = replies.
+// First block = root; subsequent = replies. A highlight or change directly
+// before the root is the thread's anchor.
 
 import { AUTHOR_RE } from "./authors";
 
@@ -93,11 +94,11 @@ export interface Thread {
   from: number;
   to: number;
   /**
-   * Node index of a `{==…==}` highlight sitting directly before the root (only
-   * inline whitespace between them): the span the thread is about. The panel
-   * folds it into the thread card instead of emitting a second card. `from`/`to`
-   * still cover the comments alone, so deleting a thread by range never touches
-   * the anchored prose.
+   * Node index of a highlight, addition, deletion or substitution sitting
+   * directly before the root (only inline whitespace between them): what the
+   * thread is about. The panel folds the pair into one card. `from`/`to` still
+   * cover the comments alone, so deleting a thread by range never touches the
+   * anchor.
    */
   anchorIndex: number | null;
 }
@@ -449,13 +450,14 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
       }
     }
 
-    // Start a new thread, claiming a directly preceding highlight as its
-    // anchor — the `{==text==}{>>comment<<}` pairing both the authoring
-    // commands and the CriticMarkup convention produce.
+    // Start a new thread, claiming a directly preceding highlight or change
+    // as its anchor — `{==text==}{>>comment<<}` is what the authoring commands
+    // and the CriticMarkup convention produce; `{++x++}{>>why<<}` is a
+    // suggestion's rationale.
     const prev = i > 0 ? accepted[i - 1] : null;
     const anchorIndex =
       prev !== null &&
-      prev.kind === "highlight" &&
+      (prev.kind === "highlight" || isChangeNode(prev)) &&
       /^[ \t]*$/.test(source.slice(prev.to, n.from))
         ? i - 1
         : null;
@@ -474,16 +476,35 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   return { nodes: accepted, threads, nodeThread };
 }
 
+export type ChangeNode = AdditionNode | DeletionNode | SubstitutionNode;
+
+export function isChangeNode(n: CriticNode): n is ChangeNode {
+  return n.kind === "addition" || n.kind === "deletion" || n.kind === "substitution";
+}
+
 /**
  * Node indexes of highlights claimed as thread anchors. They render inside
  * their thread's card, so the panel skips their own highlight card and leaves
- * them out of the highlight count.
+ * them out of the highlight count. Change anchors are not included.
  */
 export function anchorNodeIndexes(result: ParseResult): Set<number> {
   const out = new Set<number>();
   for (const t of result.threads) {
-    if (t.anchorIndex !== null) out.add(t.anchorIndex);
+    if (t.anchorIndex !== null && result.nodes[t.anchorIndex].kind === "highlight") {
+      out.add(t.anchorIndex);
+    }
   }
+  return out;
+}
+
+/** Change node index → index of the thread anchored on it. */
+export function changeThreads(result: ParseResult): Map<number, number> {
+  const out = new Map<number, number>();
+  result.threads.forEach((t, ti) => {
+    if (t.anchorIndex !== null && isChangeNode(result.nodes[t.anchorIndex])) {
+      out.set(t.anchorIndex, ti);
+    }
+  });
   return out;
 }
 

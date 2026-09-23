@@ -442,8 +442,12 @@ body {
 }
 
 .tc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
+  box-shadow: none;
   color: var(--text-muted);
   cursor: pointer;
   padding: 2px;
@@ -452,6 +456,15 @@ body {
 .tc-icon-btn:hover {
   color: var(--text-error);
   background: var(--background-modifier-hover);
+}
+.tc-icon-btn.tc-icon-accept {
+  color: var(--color-green);
+}
+.tc-icon-btn.tc-icon-reject {
+  color: var(--color-red);
+}
+.tc-icon-btn.tc-icon-neutral:hover {
+  color: var(--text-normal);
 }
 
 .tc-reply {
@@ -480,8 +493,7 @@ body {
   justify-content: flex-end;
 }
 
-.tc-btn-primary,
-.tc-btn-accept {
+.tc-btn-primary {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   border: none;
@@ -490,30 +502,14 @@ body {
   cursor: pointer;
   font-size: 0.85em;
 }
-.tc-btn-primary:hover,
-.tc-btn-accept:hover {
+.tc-btn-primary:hover {
   background: var(--interactive-accent-hover);
-}
-.tc-btn-reject,
-.tc-btn-danger {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--background-modifier-border);
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85em;
-}
-.tc-btn-reject:hover,
-.tc-btn-danger:hover {
-  border-color: var(--text-error);
-  color: var(--text-error);
 }
 
 .tc-card-actions {
   display: flex;
-  gap: 6px;
-  justify-content: flex-end;
+  gap: 2px;
+  flex: none;
 }
 
 /* Diff blocks */

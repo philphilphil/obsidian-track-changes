@@ -1,10 +1,11 @@
 // Right-side review panel. ItemView registered on a workspace leaf.
 //
 // Responsibilities:
-//   - Show one card per thread and per suggestion, in document order.
+//   - Show one card per thread and per suggestion, in document order; a
+//     thread anchored on a suggestion renders inside the suggestion's card.
 //   - For threads: render messages, allow reply, allow delete (per message
 //     and whole thread).
-//   - For suggestions: show diff + accept/reject buttons.
+//   - For suggestions: show diff + accept/reject/comment buttons.
 //   - Stay in sync with the active file (debounced re-render on modify).
 //   - Clicking a card scrolls the editor to the anchor and flashes a
 //     highlight.
@@ -23,10 +24,10 @@ import {
 import {
   parse,
   anchorNodeIndexes,
+  changeThreads,
+  isChangeNode,
+  type ChangeNode,
   type CommentNode,
-  type AdditionNode,
-  type DeletionNode,
-  type SubstitutionNode,
   type HighlightNode,
   type Thread,
   type ParseResult,
@@ -34,16 +35,12 @@ import {
 import { authorHueIndex } from "../authors";
 import { diffChars, type DiffRun } from "../diff";
 import {
-  acceptAddition,
-  acceptDeletion,
-  acceptSubstitution,
-  rejectAddition,
-  rejectDeletion,
-  rejectSubstitution,
+  appendComment,
   appendReply,
   deleteCommentNode,
   deleteThread,
   removeHighlight,
+  resolveChange,
   validateReplyText,
   type SourceEdit,
   type ReplyDateStyle,
@@ -103,6 +100,7 @@ export class ReviewPanelView extends ItemView {
   private currentSource = "";
   private rerender = debounce(() => this.refresh(), 200, true);
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
+  private commentDrafts = new Map<number, string>(); // change.from -> open comment box draft
   private collapsedCards = new Set<number>(); // card-offset values that are collapsed
   // Bumped on every refresh() entry. Lets an in-flight refresh detect that a
   // newer one started while it was awaiting the file read, and bail before
@@ -171,6 +169,7 @@ export class ReviewPanelView extends ItemView {
     if (file !== this.currentFile) {
       this.currentFile = file;
       this.replyDrafts.clear();
+      this.commentDrafts.clear();
       this.collapsedCards.clear();
     }
     void this.refresh();
@@ -237,6 +236,12 @@ export class ReviewPanelView extends ItemView {
 
     this.currentSource = source;
     const parsed = parse(source);
+    // Offsets shift as earlier marks resolve; an open draft keyed to a stale
+    // offset would otherwise reopen on whichever card lands there.
+    const changeFroms = new Set(parsed.nodes.filter(isChangeNode).map((n) => n.from));
+    for (const k of this.commentDrafts.keys()) {
+      if (!changeFroms.has(k)) this.commentDrafts.delete(k);
+    }
 
     this.contentEl.empty();
 
@@ -255,9 +260,12 @@ export class ReviewPanelView extends ItemView {
     const list = this.contentEl.createDiv({ cls: "tc-card-list" });
 
     // Emit cards in document order. One card per thread (rooted at root
-    // index); one card per non-comment node.
+    // index); one card per non-comment node. A thread anchored on a change
+    // renders inside that change's card; the numbering still counts it so it
+    // matches the inline chips.
     const seenThreads = new Set<number>();
     const anchored = anchorNodeIndexes(parsed);
+    const onChange = changeThreads(parsed);
     let threadNumber = 0;
     for (let i = 0; i < parsed.nodes.length; i++) {
       const n = parsed.nodes[i];
@@ -267,12 +275,15 @@ export class ReviewPanelView extends ItemView {
         seenThreads.add(tIdx);
         threadNumber++;
         this.renderThreadCard(list, file, source, parsed, parsed.threads[tIdx], threadNumber);
-      } else if (n.kind === "addition") {
-        this.renderAdditionCard(list, file, source, n);
-      } else if (n.kind === "deletion") {
-        this.renderDeletionCard(list, file, source, n);
-      } else if (n.kind === "substitution") {
-        this.renderSubstitutionCard(list, file, source, n);
+      } else if (isChangeNode(n)) {
+        const tIdx = onChange.get(i);
+        if (tIdx === undefined) {
+          this.renderSuggestionCard(list, file, source, parsed, n, null, 0);
+        } else {
+          seenThreads.add(tIdx);
+          threadNumber++;
+          this.renderSuggestionCard(list, file, source, parsed, n, parsed.threads[tIdx], threadNumber);
+        }
       } else if (n.kind === "highlight") {
         // An anchored highlight is rendered by its thread's card.
         if (!anchored.has(i)) this.renderHighlightCard(list, file, source, n);
@@ -285,10 +296,8 @@ export class ReviewPanelView extends ItemView {
     const anchors = anchorNodeIndexes(parsed);
     header.createDiv({ cls: "tc-header-title", text: file.basename });
     const counts = {
-      threads: parsed.threads.length,
-      suggestions: parsed.nodes.filter(
-        (n) => n.kind === "addition" || n.kind === "deletion" || n.kind === "substitution",
-      ).length,
+      threads: parsed.threads.length - changeThreads(parsed).size,
+      suggestions: parsed.nodes.filter(isChangeNode).length,
       highlights: parsed.nodes.filter(
         (n, i) => n.kind === "highlight" && !anchors.has(i),
       ).length,
@@ -310,10 +319,8 @@ export class ReviewPanelView extends ItemView {
     thread: Thread,
     threadNumber: number,
   ): void {
-    const anchor =
-      thread.anchorIndex !== null
-        ? (parsed.nodes[thread.anchorIndex] as HighlightNode)
-        : null;
+    const anchorNode = thread.anchorIndex !== null ? parsed.nodes[thread.anchorIndex] : null;
+    const anchor = anchorNode?.kind === "highlight" ? anchorNode : null;
     const card = list.createDiv({ cls: "tc-card tc-card-thread" });
     card.setAttr("data-tc-card-offset", String(thread.from));
     // Clicking the anchored span inline focuses this card, not a highlight card.
@@ -336,13 +343,53 @@ export class ReviewPanelView extends ItemView {
     });
 
     const root = parsed.nodes[thread.rootIndex] as CommentNode;
-    this.renderThreadHeader(card, source, thread, threadNumber, root);
+    this.renderThreadHeader(card, source, thread, threadNumber, root, () => {
+      void (async () => {
+        const confirmed = await this.confirmDestructiveAction(
+          "Delete thread",
+          anchor
+            ? "Remove this entire comment thread from the note and unhighlight the text it points at."
+            : "Remove this entire comment thread from the note.",
+          "Delete thread",
+        );
+        if (!confirmed) return;
+        // Render-time source, so a doc change while the dialog was open makes
+        // rebaseEdits fail closed instead of matching whatever text moved here.
+        const edits = [deleteThread(source, thread)];
+        if (anchor) edits.unshift(removeHighlight(anchor));
+        await this.host.applyEdits(file, edits);
+      })();
+    });
 
     if (anchor) {
       const quote = card.createDiv({ cls: "tc-thread-anchor" });
       this.renderTextInto(quote, anchor.text);
     }
 
+    this.renderMessages(card, file, parsed, thread, anchor);
+    this.renderComposer(card, file, "Reply…", "Reply", this.replyDrafts, thread.from, (text) =>
+      appendReply(
+        this.currentSource,
+        thread,
+        parsed,
+        text,
+        this.host.localAuthorName(),
+        this.host.replyDateStyle(),
+      ),
+    );
+  }
+
+  /**
+   * The thread's messages, each with a delete button. Deleting the last one
+   * also unhighlights `highlightAnchor`; a change anchor is never touched.
+   */
+  private renderMessages(
+    card: HTMLElement,
+    file: TFile,
+    parsed: ParseResult,
+    thread: Thread,
+    highlightAnchor: HighlightNode | null,
+  ): void {
     const messages = card.createDiv({ cls: "tc-messages" });
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
     for (const idx of ids) {
@@ -362,15 +409,12 @@ export class ReviewPanelView extends ItemView {
       if (c.metaDate !== null) {
         meta.createSpan({ cls: "tc-message-date", text: c.metaDate });
       }
-      const del = meta.createEl("button", { cls: "tc-icon-btn", attr: { "aria-label": "Delete message" } });
-      setIcon(del, "trash-2");
-      del.addEventListener("click", (e) => {
-        e.stopPropagation();
+      this.iconButton(meta, "trash-2", "Delete message", () => {
         void (async () => {
-          const isOnlyMessage = thread.replyIndexes.length === 0;
+          const unhighlight = highlightAnchor !== null && thread.replyIndexes.length === 0;
           const confirmed = await this.confirmDestructiveAction(
             "Delete message",
-            anchor && isOnlyMessage
+            unhighlight
               ? "Remove this comment from the note and unhighlight the text it points at."
               : "Remove this comment message from the note.",
             "Delete",
@@ -378,10 +422,9 @@ export class ReviewPanelView extends ItemView {
           if (!confirmed) return;
           // Dropping the last message would leave the anchor as an orphan
           // highlight card, so it goes with it.
-          const edits =
-            anchor && isOnlyMessage
-              ? [removeHighlight(anchor), deleteCommentNode(c)]
-              : [deleteCommentNode(c)];
+          const edits = unhighlight
+            ? [removeHighlight(highlightAnchor), deleteCommentNode(c)]
+            : [deleteCommentNode(c)];
           await this.host.applyEdits(file, edits);
         })();
       });
@@ -389,15 +432,25 @@ export class ReviewPanelView extends ItemView {
       const body = msg.createDiv({ cls: "tc-message-body" });
       this.renderTextInto(body, c.text);
     }
+  }
 
-    const reply = card.createDiv({ cls: "tc-reply" });
-    const ta = reply.createEl("textarea", {
+  private renderComposer(
+    parent: HTMLElement,
+    file: TFile,
+    placeholder: string,
+    submitText: string,
+    drafts: Map<number, string>,
+    key: number,
+    buildEdit: (text: string) => SourceEdit,
+  ): HTMLElement {
+    const box = parent.createDiv({ cls: "tc-reply" });
+    const ta = box.createEl("textarea", {
       cls: "tc-reply-input",
-      attr: { placeholder: "Reply…", rows: "2" },
+      attr: { placeholder, rows: "2" },
     });
-    ta.value = this.replyDrafts.get(thread.from) ?? "";
+    ta.value = drafts.get(key) ?? "";
     ta.addEventListener("input", () => {
-      this.replyDrafts.set(thread.from, ta.value);
+      drafts.set(key, ta.value);
     });
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -413,113 +466,114 @@ export class ReviewPanelView extends ItemView {
         new Notice(validationError);
         return;
       }
-      this.replyDrafts.delete(thread.from);
-      const edit = appendReply(
-        this.currentSource,
-        thread,
-        parsed,
-        text,
-        this.host.localAuthorName(),
-        this.host.replyDateStyle(),
-      );
-      await this.host.applyEdits(file, [edit]);
+      drafts.delete(key);
+      await this.host.applyEdits(file, [buildEdit(text)]);
     };
-    const actions = reply.createDiv({ cls: "tc-reply-actions" });
-    const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Reply" });
+    const actions = box.createDiv({ cls: "tc-reply-actions" });
+    const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: submitText });
     submitBtn.addEventListener("click", () => void submit());
-    const deleteThreadBtn = actions.createEl("button", {
-      cls: "tc-btn-danger",
-      text: "Delete thread",
-    });
-    deleteThreadBtn.addEventListener("click", () => {
-      void (async () => {
-        const confirmed = await this.confirmDestructiveAction(
-          "Delete thread",
-          anchor
-            ? "Remove this entire comment thread from the note and unhighlight the text it points at."
-            : "Remove this entire comment thread from the note.",
-          "Delete thread",
-        );
-        if (!confirmed) return;
-        // Render-time source, so a doc change while the dialog was open makes
-        // rebaseEdits fail closed instead of matching whatever text moved here.
-        const edits = [deleteThread(source, thread)];
-        if (anchor) edits.unshift(removeHighlight(anchor));
-        await this.host.applyEdits(file, edits);
-      })();
-    });
+    return box;
   }
 
-  private renderAdditionCard(
+  /**
+   * A suggestion card. With `thread` (a thread anchored on the change) the
+   * card also carries the thread's messages and a reply box; resolving the
+   * change removes the thread.
+   */
+  private renderSuggestionCard(
     list: HTMLElement,
     file: TFile,
     source: string,
-    n: AdditionNode,
+    parsed: ParseResult,
+    n: ChangeNode,
+    thread: Thread | null,
+    threadNumber: number,
   ): void {
     const card = list.createDiv({ cls: "tc-card tc-card-suggestion" });
     card.setAttr("data-tc-card-offset", String(n.from));
+    // Clicking the thread's chip inline focuses this card.
+    if (thread) card.setAttr("data-tc-card-anchor", String(thread.from));
     card.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest("button")) return;
-      this.host.revealOffset(file, n.from, n.to - n.from);
+      if (target.closest(".tc-reply, button, textarea, input")) return;
+      if (thread) this.host.revealOffset(file, n.from, thread.to - n.from, true);
+      else this.host.revealOffset(file, n.from, n.to - n.from);
     });
-    this.renderLineRef(card, source, n.from);
-    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
-    const diff = card.createDiv({ cls: "tc-diff" });
-    diff.createSpan({ cls: "tc-diff-label", text: "Insert" });
-    const added = diff.createDiv({ cls: "tc-diff-added" });
-    this.renderTextInto(added, n.text);
-    this.renderAcceptReject(
-      card,
-      file,
-      () => acceptAddition(n),
-      () => rejectAddition(n),
+
+    const header = card.createDiv({ cls: "tc-card-header" });
+    this.renderLineRef(header, source, n.from, thread ? `#${threadNumber}` : undefined);
+    const actions = header.createDiv({ cls: "tc-card-actions" });
+    this.iconButton(
+      actions,
+      "check",
+      "Accept",
+      () => void this.host.applyEdits(file, resolveChange(source, parsed, n, "accept")),
+      "tc-icon-accept",
     );
-  }
-
-  private renderDeletionCard(
-    list: HTMLElement,
-    file: TFile,
-    source: string,
-    n: DeletionNode,
-  ): void {
-    const card = list.createDiv({ cls: "tc-card tc-card-suggestion" });
-    card.setAttr("data-tc-card-offset", String(n.from));
-    card.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest("button")) return;
-      this.host.revealOffset(file, n.from, n.to - n.from);
-    });
-    this.renderLineRef(card, source, n.from);
-    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
-    const diff = card.createDiv({ cls: "tc-diff" });
-    diff.createSpan({ cls: "tc-diff-label", text: "Delete" });
-    const removed = diff.createDiv({ cls: "tc-diff-removed" });
-    this.renderTextInto(removed, n.text);
-    this.renderAcceptReject(
-      card,
-      file,
-      () => acceptDeletion(n),
-      () => rejectDeletion(n),
+    this.iconButton(
+      actions,
+      "x",
+      "Reject",
+      () => void this.host.applyEdits(file, resolveChange(source, parsed, n, "reject")),
+      "tc-icon-reject",
     );
+    let commentBox: HTMLElement | null = null;
+    const openCommentBox = (): HTMLElement =>
+      this.renderComposer(card, file, "Comment…", "Comment", this.commentDrafts, n.from, (text) =>
+        appendComment(source, n, text, this.host.localAuthorName(), this.host.replyDateStyle()),
+      );
+    if (!thread) {
+      this.iconButton(
+        actions,
+        "message-square-plus",
+        "Comment",
+        () => {
+          if (commentBox) {
+            commentBox.remove();
+            commentBox = null;
+            this.commentDrafts.delete(n.from);
+          } else {
+            this.commentDrafts.set(n.from, "");
+            commentBox = openCommentBox();
+            commentBox.querySelector("textarea")?.focus();
+          }
+        },
+        "tc-icon-neutral",
+      );
+    }
+
+    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
+    this.renderDiff(card, n);
+
+    if (thread) {
+      this.renderMessages(card, file, parsed, thread, null);
+      this.renderComposer(card, file, "Reply…", "Reply", this.replyDrafts, thread.from, (text) =>
+        appendReply(
+          this.currentSource,
+          thread,
+          parsed,
+          text,
+          this.host.localAuthorName(),
+          this.host.replyDateStyle(),
+        ),
+      );
+    } else if (this.commentDrafts.has(n.from)) {
+      commentBox = openCommentBox();
+    }
   }
 
-  private renderSubstitutionCard(
-    list: HTMLElement,
-    file: TFile,
-    source: string,
-    n: SubstitutionNode,
-  ): void {
-    const card = list.createDiv({ cls: "tc-card tc-card-suggestion" });
-    card.setAttr("data-tc-card-offset", String(n.from));
-    card.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest("button")) return;
-      this.host.revealOffset(file, n.from, n.to - n.from);
-    });
-    this.renderLineRef(card, source, n.from);
-    this.renderMetaRow(card, card, n.metaAuthor, null, n.metaDate, "tc-card-meta");
+  private renderDiff(card: HTMLElement, n: ChangeNode): void {
     const diff = card.createDiv({ cls: "tc-diff" });
+    if (n.kind === "addition") {
+      diff.createSpan({ cls: "tc-diff-label", text: "Insert" });
+      this.renderTextInto(diff.createDiv({ cls: "tc-diff-added" }), n.text);
+      return;
+    }
+    if (n.kind === "deletion") {
+      diff.createSpan({ cls: "tc-diff-label", text: "Delete" });
+      this.renderTextInto(diff.createDiv({ cls: "tc-diff-removed" }), n.text);
+      return;
+    }
     diff.createSpan({ cls: "tc-diff-label", text: "Replace" });
     const removed = diff.createDiv({ cls: "tc-diff-removed" });
     const arrow = diff.createDiv({ cls: "tc-diff-arrow" });
@@ -533,12 +587,6 @@ export class ReviewPanelView extends ItemView {
       this.renderTextInto(removed, n.oldText);
       this.renderTextInto(added, n.newText);
     }
-    this.renderAcceptReject(
-      card,
-      file,
-      () => acceptSubstitution(n),
-      () => rejectSubstitution(n),
-    );
   }
 
   private renderHighlightCard(
@@ -569,8 +617,12 @@ export class ReviewPanelView extends ItemView {
       if (source.charCodeAt(i) === 10) line++;
     }
     header.createDiv({ cls: "tc-line-ref", text: `Highlight · Line ${line}` });
+    const actions = header.createDiv({ cls: "tc-card-actions" });
+    this.iconButton(actions, "eraser", "Remove highlight", () => {
+      void this.host.applyEdits(file, [removeHighlight(n)]);
+    });
     const toggle = header.createEl("button", {
-      cls: "tc-card-toggle tc-icon-btn",
+      cls: "clickable-icon tc-card-toggle tc-icon-btn",
       attr: { "aria-label": "Toggle highlight" },
     });
     setIcon(toggle, isCollapsed ? "chevron-right" : "chevron-down");
@@ -588,35 +640,29 @@ export class ReviewPanelView extends ItemView {
     const diff = body.createDiv({ cls: "tc-diff" });
     const diffBody = diff.createDiv({ cls: "tc-diff-highlight" });
     this.renderTextInto(diffBody, n.text);
-    const actions = body.createDiv({ cls: "tc-card-actions" });
-    const removeBtn = actions.createEl("button", {
-      cls: "tc-btn-reject",
-      text: "Remove highlight",
-    });
-    removeBtn.addEventListener("click", () => {
-      void this.host.applyEdits(file, [removeHighlight(n)]);
-    });
   }
 
-  private renderAcceptReject(
-    card: HTMLElement,
-    file: TFile,
-    accept: () => SourceEdit,
-    reject: () => SourceEdit,
-  ): void {
-    const actions = card.createDiv({ cls: "tc-card-actions" });
-    const acceptBtn = actions.createEl("button", { cls: "tc-btn-accept", text: "Accept" });
-    acceptBtn.addEventListener("click", () => {
-      void this.host.applyEdits(file, [accept()]);
+  private iconButton(
+    parent: HTMLElement,
+    icon: string,
+    label: string,
+    onClick: () => void,
+    cls = "",
+  ): HTMLButtonElement {
+    const btn = parent.createEl("button", {
+      cls: `clickable-icon tc-icon-btn ${cls}`.trim(),
+      attr: { "aria-label": label },
     });
-    const rejectBtn = actions.createEl("button", { cls: "tc-btn-reject", text: "Reject" });
-    rejectBtn.addEventListener("click", () => {
-      void this.host.applyEdits(file, [reject()]);
+    setIcon(btn, icon);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onClick();
     });
+    return btn;
   }
 
   private renderLineRef(
-    card: HTMLElement,
+    parent: HTMLElement,
     source: string,
     offset: number,
     prefix?: string,
@@ -626,7 +672,7 @@ export class ReviewPanelView extends ItemView {
       if (source.charCodeAt(i) === 10) line++;
     }
     const text = prefix ? `${prefix} · Line ${line}` : `Line ${line}`;
-    card.createDiv({ cls: "tc-line-ref", text });
+    parent.createDiv({ cls: "tc-line-ref", text });
   }
 
   private renderThreadHeader(
@@ -635,6 +681,7 @@ export class ReviewPanelView extends ItemView {
     thread: Thread,
     threadNumber: number,
     root: CommentNode,
+    onDelete: () => void,
   ): void {
     const header = card.createDiv({ cls: "tc-thread-header" });
 
@@ -652,8 +699,11 @@ export class ReviewPanelView extends ItemView {
       });
     }
 
+    const actions = header.createDiv({ cls: "tc-card-actions" });
+    this.iconButton(actions, "trash-2", "Delete thread", onDelete);
+
     const toggle = header.createEl("button", {
-      cls: "tc-card-toggle tc-thread-toggle tc-icon-btn",
+      cls: "clickable-icon tc-card-toggle tc-thread-toggle tc-icon-btn",
       attr: { "aria-label": "Toggle thread" },
     });
     const isCollapsed = this.collapsedCards.has(thread.from);

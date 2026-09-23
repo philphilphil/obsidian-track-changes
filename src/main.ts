@@ -166,7 +166,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const ctx = this.cursorContext(editor);
         if (typeof ctx === "string") return;
         const items: { title: string; icon: string; run: () => void }[] = CURSOR_COMMANDS.filter(
-          (c) => typeof editsAtCursor(ctx.parsed, ctx.offset, c.action) !== "string",
+          (c) => typeof editsAtCursor(ctx.source, ctx.parsed, ctx.offset, c.action) !== "string",
         ).map((c) => ({
           title: c.menuTitle,
           icon: c.icon,
@@ -413,7 +413,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     action: CursorAction,
   ): Promise<void> {
     const ctx = this.cursorContext(editor);
-    const edits = typeof ctx === "string" ? ctx : editsAtCursor(ctx.parsed, ctx.offset, action);
+    const edits =
+      typeof ctx === "string" ? ctx : editsAtCursor(ctx.source, ctx.parsed, ctx.offset, action);
     if (typeof edits === "string") {
       new Notice(edits);
       return;
@@ -594,9 +595,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
 
   /**
    * Flash the comment chip inside the revealed range. The range start isn't
-   * always the chip itself: an anchored thread reveals from its `{==…==}`
-   * highlight, so the chip sits further in — hence the scan over the range
-   * rather than an exact-offset lookup.
+   * always the chip itself: an anchored thread reveals from its anchor, so the
+   * chip sits further in — hence the scan over the range rather than an
+   * exact-offset lookup.
    */
   private flashChipAt(cm: EditorView, offset: number, length = 0): void {
     // The chip may not be in the rendered viewport yet — CM6 renders
