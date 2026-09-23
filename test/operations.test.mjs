@@ -38,6 +38,10 @@ const {
   removeAiText,
   finalizeEdits,
   DEFAULT_FINALIZE,
+  findChangeAt,
+  acceptChange,
+  rejectChange,
+  editsAtCursor,
 } = ops;
 
 // Local calendar day (YYYY-MM-DD), mirroring formatReplyDate's "date" style.
@@ -215,6 +219,88 @@ test("buildAttributionPrefix: datetime style", () => {
 test("buildAttributionPrefix: sanitizes and trims the name", () => {
   const p = buildAttributionPrefix('  P{h}i"l\n ', "date", new Date(2026, 6, 24));
   assert.equal(p, 'author="Phil" date="2026-07-24"');
+});
+
+test("findChangeAt: inside, at from, at to", () => {
+  const src = "x {++ins++} y";
+  const nodes = parse(src).nodes;
+  assert.equal(findChangeAt(nodes, 5)?.kind, "addition");
+  assert.equal(findChangeAt(nodes, 2)?.kind, "addition");
+  assert.equal(findChangeAt(nodes, 11)?.kind, "addition");
+});
+
+test("findChangeAt: just outside returns null", () => {
+  const nodes = parse("x {++ins++} y").nodes;
+  assert.equal(findChangeAt(nodes, 1), null);
+  assert.equal(findChangeAt(nodes, 12), null);
+});
+
+test("findChangeAt: ignores comments, highlights, aitext", () => {
+  const src = "{>>c<<} {==h==} {=+a+=}";
+  const nodes = parse(src).nodes;
+  assert.equal(nodes.length, 3);
+  for (let i = 0; i <= src.length; i++) assert.equal(findChangeAt(nodes, i), null);
+});
+
+test("findChangeAt: prefixed mark spans its prefix", () => {
+  const src = 'x {author="AI" --gone--} y';
+  const nodes = parse(src).nodes;
+  assert.equal(findChangeAt(nodes, 3)?.kind, "deletion");
+  assert.equal(findChangeAt(nodes, src.indexOf("} y") + 1)?.kind, "deletion");
+});
+
+test("findChangeAt: adjacent marks pick the first", () => {
+  const src = "{++a++}{--b--}";
+  const nodes = parse(src).nodes;
+  assert.equal(findChangeAt(nodes, 7)?.kind, "addition");
+  assert.equal(findChangeAt(nodes, 8)?.kind, "deletion");
+});
+
+test("acceptChange/rejectChange dispatch per kind", () => {
+  const cases = [
+    ["x {++ins++} y", "x ins y", "x  y"],
+    ["x {--gone--} y", "x  y", "x gone y"],
+    ["x {~~old~>new~~} y", "x new y", "x old y"],
+  ];
+  for (const [src, accepted, rejected] of cases) {
+    const node = findChangeAt(parse(src).nodes, 4);
+    assert.equal(applyEdits(src, [acceptChange(node)]), accepted);
+    assert.equal(applyEdits(src, [rejectChange(node)]), rejected);
+  }
+});
+
+test("editsAtCursor: accept/reject a change, notice off one", () => {
+  const src = "x {++ins++} y";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 4, "accept")), "x ins y");
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 4, "reject")), "x  y");
+  assert.equal(editsAtCursor(parsed, 0, "accept"), "No change at cursor.");
+});
+
+test("editsAtCursor: remove a standalone highlight", () => {
+  const src = "x {==h==} y";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 9, "remove-highlight")), "x h y");
+  assert.equal(editsAtCursor(parsed, 0, "remove-highlight"), "No highlight at cursor.");
+});
+
+test("editsAtCursor: an anchor highlight is not removable on its own", () => {
+  const parsed = parse("{==h==}{>>c<<}");
+  assert.equal(typeof editsAtCursor(parsed, 3, "remove-highlight"), "string");
+});
+
+test("editsAtCursor: delete a reply keeps the anchor", () => {
+  const src = "{==h==}{>>a<<} {>>b<<} z";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 17, "delete-comment")), "{==h==}{>>a<<}  z");
+});
+
+test("editsAtCursor: delete the only message removes its anchor", () => {
+  const src = "x {==h==}{>>c<<} y";
+  const parsed = parse(src);
+  const edits = editsAtCursor(parsed, 12, "delete-comment");
+  assert.equal(applyEdits(src, edits), "x h y");
+  assert.equal(editsAtCursor(parsed, 0, "delete-comment"), "No comment at cursor.");
 });
 
 console.log("done.");

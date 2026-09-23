@@ -9,7 +9,15 @@
 // apply-time (because the user typed, or the AI re-edited the file) would be
 // corrupted by stale offsets.
 
-import type { CriticNode, Thread, ParseResult, CommentNode } from "./parser";
+import type {
+  CriticNode,
+  Thread,
+  ParseResult,
+  CommentNode,
+  AdditionNode,
+  DeletionNode,
+  SubstitutionNode,
+} from "./parser";
 
 export interface SourceEdit {
   from: number;
@@ -151,6 +159,84 @@ export function acceptSubstitution(node: CriticNode): SourceEdit {
 export function rejectSubstitution(node: CriticNode): SourceEdit {
   if (node.kind !== "substitution") throw new Error("rejectSubstitution: wrong node kind");
   return { from: node.from, to: node.to, insert: node.oldText, expected: node.raw };
+}
+
+export type ChangeNode = AdditionNode | DeletionNode | SubstitutionNode;
+
+/** The first suggestion whose range contains `offset`, ends inclusive. */
+export function findChangeAt(nodes: CriticNode[], offset: number): ChangeNode | null {
+  for (const n of nodes) {
+    if (n.kind !== "addition" && n.kind !== "deletion" && n.kind !== "substitution") continue;
+    if (n.from <= offset && offset <= n.to) return n;
+  }
+  return null;
+}
+
+export function acceptChange(node: ChangeNode): SourceEdit {
+  switch (node.kind) {
+    case "addition":
+      return acceptAddition(node);
+    case "deletion":
+      return acceptDeletion(node);
+    case "substitution":
+      return acceptSubstitution(node);
+  }
+}
+
+export function rejectChange(node: ChangeNode): SourceEdit {
+  switch (node.kind) {
+    case "addition":
+      return rejectAddition(node);
+    case "deletion":
+      return rejectDeletion(node);
+    case "substitution":
+      return rejectSubstitution(node);
+  }
+}
+
+export type CursorAction = "accept" | "reject" | "remove-highlight" | "delete-comment";
+
+function indexOfKindAt(nodes: CriticNode[], offset: number, kind: CriticNode["kind"]): number {
+  return nodes.findIndex((n) => n.kind === kind && n.from <= offset && offset <= n.to);
+}
+
+/**
+ * Edits for `action` on the mark at `offset` (ends inclusive), or the Notice
+ * text explaining why there are none. Mirrors the panel: an anchor highlight
+ * is part of its thread's card, and deleting a thread's only message takes
+ * the anchor with it.
+ */
+export function editsAtCursor(
+  parsed: ParseResult,
+  offset: number,
+  action: CursorAction,
+): SourceEdit[] | string {
+  switch (action) {
+    case "accept":
+    case "reject": {
+      const node = findChangeAt(parsed.nodes, offset);
+      if (!node) return "No change at cursor.";
+      return [action === "accept" ? acceptChange(node) : rejectChange(node)];
+    }
+    case "remove-highlight": {
+      const i = indexOfKindAt(parsed.nodes, offset, "highlight");
+      if (i === -1) return "No highlight at cursor.";
+      if (parsed.threads.some((t) => t.anchorIndex === i)) {
+        return "This highlight belongs to a comment thread.";
+      }
+      return [removeHighlight(parsed.nodes[i])];
+    }
+    case "delete-comment": {
+      const i = indexOfKindAt(parsed.nodes, offset, "comment");
+      if (i === -1) return "No comment at cursor.";
+      const thread = parsed.threads[parsed.nodeThread[i]];
+      const edits = [deleteCommentNode(parsed.nodes[i])];
+      if (thread.anchorIndex !== null && thread.replyIndexes.length === 0) {
+        edits.unshift(removeHighlight(parsed.nodes[thread.anchorIndex]));
+      }
+      return edits;
+    }
+  }
 }
 
 /** Remove a highlight: strip the {==…==} wrapper, keep the inner text. */

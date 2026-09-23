@@ -9,11 +9,20 @@ import {
   MenuItem,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, buildAttributionPrefix, type SourceEdit } from "./operations";
+import {
+  applyEdits,
+  rebaseEdits,
+  buildAttributionPrefix,
+  editsAtCursor,
+  type CursorAction,
+  type SourceEdit,
+} from "./operations";
+import { parse, type ParseResult } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import { buildMark, checkGuards, type AuthoringKind } from "./authoring";
@@ -34,6 +43,43 @@ const AUTHORING_COMMANDS: ReadonlyArray<{
   { id: "mark-substitution", name: "Mark selection for substitution", kind: "substitution", icon: "pencil" },
   { id: "mark-highlight", name: "Highlight selection", kind: "highlight", icon: "highlighter" },
   { id: "insert-comment", name: "Insert comment", kind: "comment", icon: "message-square" },
+];
+
+const CURSOR_COMMANDS: ReadonlyArray<{
+  id: string;
+  name: string;
+  menuTitle: string;
+  action: CursorAction;
+  icon: string;
+}> = [
+  {
+    id: "accept-change-at-cursor",
+    name: "Accept change at cursor",
+    menuTitle: "Accept change",
+    action: "accept",
+    icon: "check",
+  },
+  {
+    id: "reject-change-at-cursor",
+    name: "Reject change at cursor",
+    menuTitle: "Reject change",
+    action: "reject",
+    icon: "x",
+  },
+  {
+    id: "remove-highlight-at-cursor",
+    name: "Remove highlight at cursor",
+    menuTitle: "Remove highlight",
+    action: "remove-highlight",
+    icon: "eraser",
+  },
+  {
+    id: "delete-comment-at-cursor",
+    name: "Delete comment at cursor",
+    menuTitle: "Delete comment",
+    action: "delete-comment",
+    icon: "trash-2",
+  },
 ];
 
 export default class TrackChangesCriticMarkupPlugin extends Plugin {
@@ -96,24 +142,53 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       });
     }
 
-    // Right-click menu: a "Track changes" submenu with only the actions valid
-    // for the current selection state. MenuItem.setSubmenu is not in the
-    // public typings but exists at runtime on desktop; flat items otherwise.
+    for (const c of CURSOR_COMMANDS) {
+      this.addCommand({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        editorCheckCallback: (checking, editor, view) => {
+          if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+          if (!checking) void this.applyAtCursor(editor, view, c.action);
+          return true;
+        },
+      });
+    }
+
+    // Right-click menu: a "Track changes" submenu with only the actions that
+    // would succeed. On a mark (inside or touching) that is the mark's own
+    // actions; elsewhere the authoring actions the guards allow.
+    // MenuItem.setSubmenu is not in the public typings but exists at runtime
+    // on desktop; flat items otherwise.
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return;
-        const hasSelection = editor.somethingSelected();
-        const valid = AUTHORING_COMMANDS.filter((c) =>
-          c.kind === "comment" ? true : c.kind === "addition" ? !hasSelection : hasSelection,
-        );
+        const ctx = this.cursorContext(editor);
+        if (typeof ctx === "string") return;
+        const items: { title: string; icon: string; run: () => void }[] = CURSOR_COMMANDS.filter(
+          (c) => typeof editsAtCursor(ctx.parsed, ctx.offset, c.action) !== "string",
+        ).map((c) => ({
+          title: c.menuTitle,
+          icon: c.icon,
+          run: () => void this.applyAtCursor(editor, view, c.action),
+        }));
+        if (items.length === 0) {
+          const from = editor.posToOffset(editor.getCursor("from"));
+          const to = editor.posToOffset(editor.getCursor("to"));
+          for (const c of AUTHORING_COMMANDS) {
+            const fitsSelection = c.kind === "comment" || (c.kind === "addition") === (from === to);
+            if (!fitsSelection || checkGuards(ctx.source, from, to, c.kind) !== null) continue;
+            items.push({
+              title: c.name,
+              icon: c.icon,
+              run: () => this.insertAuthoredMark(editor, c.kind),
+            });
+          }
+        }
+        if (items.length === 0) return;
         const addItems = (target: Menu): void => {
-          for (const c of valid) {
-            target.addItem((item) =>
-              item
-                .setTitle(c.name)
-                .setIcon(c.icon)
-                .onClick(() => this.insertAuthoredMark(editor, c.kind)),
-            );
+          for (const it of items) {
+            target.addItem((item) => item.setTitle(it.title).setIcon(it.icon).onClick(it.run));
           }
         };
         menu.addSeparator();
@@ -315,6 +390,41 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     }
   }
 
+  // ---- actions at cursor (issue #44) ----
+
+  private cursorContext(
+    editor: Editor,
+  ): { source: string; parsed: ParseResult; offset: number } | string {
+    if (editor.listSelections().length > 1) {
+      return "Multiple cursors are not supported; collapse to a single selection.";
+    }
+    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    const source = cm ? cm.state.doc.toString() : editor.getValue();
+    return {
+      source,
+      parsed: parse(source),
+      offset: editor.posToOffset(editor.getCursor("head")),
+    };
+  }
+
+  private async applyAtCursor(
+    editor: Editor,
+    view: MarkdownView,
+    action: CursorAction,
+  ): Promise<void> {
+    const ctx = this.cursorContext(editor);
+    const edits = typeof ctx === "string" ? ctx : editsAtCursor(ctx.parsed, ctx.offset, action);
+    if (typeof edits === "string") {
+      new Notice(edits);
+      return;
+    }
+    if (!view.file) return;
+    // Cursor lands after the last edit's replacement, in post-edit offsets.
+    const last = edits[edits.length - 1];
+    const shift = edits.reduce((d, e) => d + e.insert.length - (e.to - e.from), 0);
+    await this.applyEditsToFile(view.file, edits, { editor, cursorAfter: last.to + shift });
+  }
+
   // ---- editor edit application ----
 
   /**
@@ -329,7 +439,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     options: ApplyEditsOptions = {},
   ): Promise<boolean> {
     if (edits.length === 0) return true;
-    const editor = this.findEditorForFile(file);
+    const editor = options.editor ?? this.findEditorForFile(file);
     // `editor.cm` is undocumented but stable across Obsidian releases; it
     // exposes the underlying CM6 EditorView so our dispatch coalesces with
     // the user's normal undo stack.
@@ -350,6 +460,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       if (cm) {
         cm.dispatch({
           changes: prepared.edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
+          selection:
+            options.cursorAfter !== undefined ? { anchor: options.cursorAfter } : undefined,
+          annotations: isolateHistory.of("full"),
         });
         this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
         return true;
@@ -534,6 +647,10 @@ interface ApplyEditsOptions {
   expectedSource?: string;
   /** Refuse partial success if any edit cannot be rebased. */
   requireAll?: boolean;
+  /** Editor to apply through; defaults to the first pane showing the file. */
+  editor?: Editor;
+  /** Where to put the cursor after a live-editor apply, in post-edit offsets. */
+  cursorAfter?: number;
 }
 
 type EditFailureReason = "stale" | "moved";

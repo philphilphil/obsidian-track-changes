@@ -28,7 +28,7 @@ Entry point `src/main.ts` is the `Plugin` subclass. It wires four things into Ob
 1. **Right-side panel view** (`src/panel/view.ts`, `REVIEW_VIEW_TYPE`) — the review UI. `main.ts` constructs a `PanelHost` adapter so the panel never imports the `Plugin` directly; the panel calls back through `host.applyEdits`, `host.revealOffset`.
 2. **CodeMirror 6 decoration extension** (`src/editor/decorations.ts`) — inline highlighting of CriticMarkup ranges in Live Preview / Source mode. Click handler routes back into `main.handleInlineClick` which opens the panel and focuses the offset.
 3. **Reading-mode post-processor** (`src/reading.ts`) — renders markup in preview mode either as accepted preview or side-by-side, based on settings.
-4. **Commands**: open panel, finalize for publish (`src/finalize.ts`), five manual-authoring commands (`src/authoring.ts`).
+4. **Commands**: open panel, finalize for publish (`src/finalize.ts`), five manual-authoring commands (`src/authoring.ts`), accept/reject change, remove highlight, delete comment at cursor (`editsAtCursor` in `src/operations.ts`; cursor must be inside or touching the mark, no next-mark fallback; anchor highlights are skipped and deleting a thread's only message takes its anchor, as in the panel).
 
 ### Data flow: parse → edits → rebase → apply
 
