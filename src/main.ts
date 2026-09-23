@@ -9,6 +9,7 @@ import {
   MenuItem,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
@@ -388,6 +389,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     if (!view.file) return;
     const edit = action === "accept" ? acceptChange(node) : rejectChange(node);
     await this.applyEditsToFile(view.file, [edit], {
+      editor,
       cursorAfter: node.from + edit.insert.length,
     });
   }
@@ -406,7 +408,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     options: ApplyEditsOptions = {},
   ): Promise<boolean> {
     if (edits.length === 0) return true;
-    const editor = this.findEditorForFile(file);
+    const editor = options.editor ?? this.findEditorForFile(file);
     // `editor.cm` is undocumented but stable across Obsidian releases; it
     // exposes the underlying CM6 EditorView so our dispatch coalesces with
     // the user's normal undo stack.
@@ -429,6 +431,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
           changes: prepared.edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
           selection:
             options.cursorAfter !== undefined ? { anchor: options.cursorAfter } : undefined,
+          annotations: isolateHistory.of("full"),
         });
         this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
         return true;
@@ -613,6 +616,8 @@ interface ApplyEditsOptions {
   expectedSource?: string;
   /** Refuse partial success if any edit cannot be rebased. */
   requireAll?: boolean;
+  /** Editor to apply through; defaults to the first pane showing the file. */
+  editor?: Editor;
   /** Where to put the cursor after a live-editor apply, in post-edit offsets. */
   cursorAfter?: number;
 }
