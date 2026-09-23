@@ -94,13 +94,18 @@ export interface Thread {
   from: number;
   to: number;
   /**
-   * Node index of a highlight, addition, deletion or substitution sitting
-   * directly before the root (only inline whitespace between them): what the
-   * thread is about. The panel folds the pair into one card. `from`/`to` still
-   * cover the comments alone, so deleting a thread by range never touches the
-   * anchor.
+   * Node index of a highlight sitting directly before the root (only inline
+   * whitespace between them): what the thread is about. The panel folds the
+   * pair into one card. `from`/`to` still cover the comments alone, so
+   * deleting a thread by range never touches the anchor.
    */
   anchorIndex: number | null;
+  /**
+   * Node index of an addition, deletion or substitution in the same position:
+   * the thread is that suggestion's rationale. Unlike a highlight anchor it is
+   * never removed with the thread; resolving the change removes the thread.
+   */
+  changeIndex: number | null;
 }
 
 export interface ParseResult {
@@ -455,18 +460,14 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
     // and the CriticMarkup convention produce; `{++x++}{>>why<<}` is a
     // suggestion's rationale.
     const prev = i > 0 ? accepted[i - 1] : null;
-    const anchorIndex =
-      prev !== null &&
-      (prev.kind === "highlight" || isChangeNode(prev)) &&
-      /^[ \t]*$/.test(source.slice(prev.to, n.from))
-        ? i - 1
-        : null;
+    const anchor = prev !== null && /^[ \t]*$/.test(source.slice(prev.to, n.from)) ? prev : null;
     currentThread = {
       rootIndex: i,
       replyIndexes: [],
       from: n.from,
       to: n.to,
-      anchorIndex,
+      anchorIndex: anchor?.kind === "highlight" ? i - 1 : null,
+      changeIndex: anchor && isChangeNode(anchor) ? i - 1 : null,
     };
     threads.push(currentThread);
     nodeThread[i] = threads.length - 1;
@@ -485,14 +486,12 @@ export function isChangeNode(n: CriticNode): n is ChangeNode {
 /**
  * Node indexes of highlights claimed as thread anchors. They render inside
  * their thread's card, so the panel skips their own highlight card and leaves
- * them out of the highlight count. Change anchors are not included.
+ * them out of the highlight count.
  */
 export function anchorNodeIndexes(result: ParseResult): Set<number> {
   const out = new Set<number>();
   for (const t of result.threads) {
-    if (t.anchorIndex !== null && result.nodes[t.anchorIndex].kind === "highlight") {
-      out.add(t.anchorIndex);
-    }
+    if (t.anchorIndex !== null) out.add(t.anchorIndex);
   }
   return out;
 }
@@ -501,9 +500,7 @@ export function anchorNodeIndexes(result: ParseResult): Set<number> {
 export function changeThreads(result: ParseResult): Map<number, number> {
   const out = new Map<number, number>();
   result.threads.forEach((t, ti) => {
-    if (t.anchorIndex !== null && isChangeNode(result.nodes[t.anchorIndex])) {
-      out.set(t.anchorIndex, ti);
-    }
+    if (t.changeIndex !== null) out.set(t.changeIndex, ti);
   });
   return out;
 }

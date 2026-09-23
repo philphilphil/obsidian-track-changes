@@ -321,7 +321,7 @@ test("appendComment: inserts an attributed comment the parser anchors on the cha
     assert.ok(next.includes(`${change.raw}{author="Phil" date="${localDay()}">>why?<<}`));
     const after = parse(next);
     assert.equal(after.threads.length, 1);
-    assert.equal(after.nodes[after.threads[0].anchorIndex].kind, change.kind);
+    assert.equal(after.nodes[after.threads[0].changeIndex].kind, change.kind);
   }
 });
 
@@ -347,7 +347,7 @@ test("appendComment: no author name → date only", () => {
 test("resolveChange: accept/reject remove the anchored thread", () => {
   const cases = [
     ["x {++ins++}{>>why<<} y", "x ins y", "x  y"],
-    ["x {--gone--} \t{>>a<<} {>>b<<} y", "x  \t y", "x gone \t y"],
+    ["x {--gone--} \t{>>a<<} {>>b<<} y", "x  y", "x gone y"],
     ['x {~~old~>new~~}{author="AI">>r<<}{>>ok<<} y', "x new y", "x old y"],
   ];
   for (const [src, accepted, rejected] of cases) {

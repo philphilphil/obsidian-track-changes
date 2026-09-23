@@ -10,6 +10,7 @@
 // corrupted by stale offsets.
 
 import type { CriticNode, Thread, ParseResult, CommentNode, ChangeNode } from "./parser";
+import { isChangeNode } from "./parser";
 
 export interface SourceEdit {
   from: number;
@@ -158,8 +159,7 @@ export type { ChangeNode };
 /** The first suggestion whose range contains `offset`, ends inclusive. */
 export function findChangeAt(nodes: CriticNode[], offset: number): ChangeNode | null {
   for (const n of nodes) {
-    if (n.kind !== "addition" && n.kind !== "deletion" && n.kind !== "substitution") continue;
-    if (n.from <= offset && offset <= n.to) return n;
+    if (isChangeNode(n) && n.from <= offset && offset <= n.to) return n;
   }
   return null;
 }
@@ -186,17 +186,11 @@ export function rejectChange(node: ChangeNode): SourceEdit {
   }
 }
 
-function threadAnchoredOn(parsed: ParseResult, node: CriticNode): Thread | null {
-  return (
-    parsed.threads.find((t) => t.anchorIndex !== null && parsed.nodes[t.anchorIndex] === node) ??
-    null
-  );
-}
-
 /**
- * Accept or reject a change, taking its anchored thread (its rationale) with
- * it. The pair is one edit so a drifted doc rebases it all-or-nothing: a
- * half-applied pair could re-anchor the orphaned thread on a neighbouring mark.
+ * Accept or reject a change, taking its anchored thread (its rationale) and
+ * the whitespace before it along. The pair is one edit so a drifted doc
+ * rebases it all-or-nothing: a half-applied pair could re-anchor the orphaned
+ * thread on a neighbouring mark.
  */
 export function resolveChange(
   source: string,
@@ -205,13 +199,14 @@ export function resolveChange(
   action: "accept" | "reject",
 ): SourceEdit[] {
   const edit = action === "accept" ? acceptChange(node) : rejectChange(node);
-  const thread = threadAnchoredOn(parsed, node);
+  const index = parsed.nodes.indexOf(node);
+  const thread = parsed.threads.find((t) => t.changeIndex === index);
   if (!thread) return [edit];
   return [
     {
       from: node.from,
       to: thread.to,
-      insert: edit.insert + source.slice(node.to, thread.from),
+      insert: edit.insert,
       expected: source.slice(node.from, thread.to),
     },
   ];
@@ -256,9 +251,8 @@ export function editsAtCursor(
       if (i === -1) return "No comment at cursor.";
       const thread = parsed.threads[parsed.nodeThread[i]];
       const edits = [deleteCommentNode(parsed.nodes[i])];
-      const anchor = thread.anchorIndex !== null ? parsed.nodes[thread.anchorIndex] : null;
-      if (anchor?.kind === "highlight" && thread.replyIndexes.length === 0) {
-        edits.unshift(removeHighlight(anchor));
+      if (thread.anchorIndex !== null && thread.replyIndexes.length === 0) {
+        edits.unshift(removeHighlight(parsed.nodes[thread.anchorIndex]));
       }
       return edits;
     }

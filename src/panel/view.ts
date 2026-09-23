@@ -245,7 +245,9 @@ export class ReviewPanelView extends ItemView {
 
     this.contentEl.empty();
 
-    this.renderHeader(file, parsed);
+    const anchored = anchorNodeIndexes(parsed);
+    const onChange = changeThreads(parsed);
+    this.renderHeader(file, parsed, anchored, onChange);
 
     // `aitext` marks render no card (visual-only), so a file with only those
     // would otherwise leave an empty card list — show the empty state instead.
@@ -264,8 +266,6 @@ export class ReviewPanelView extends ItemView {
     // renders inside that change's card; the numbering still counts it so it
     // matches the inline chips.
     const seenThreads = new Set<number>();
-    const anchored = anchorNodeIndexes(parsed);
-    const onChange = changeThreads(parsed);
     let threadNumber = 0;
     for (let i = 0; i < parsed.nodes.length; i++) {
       const n = parsed.nodes[i];
@@ -291,15 +291,19 @@ export class ReviewPanelView extends ItemView {
     }
   }
 
-  private renderHeader(file: TFile, parsed: ParseResult): void {
+  private renderHeader(
+    file: TFile,
+    parsed: ParseResult,
+    anchored: Set<number>,
+    onChange: Map<number, number>,
+  ): void {
     const header = this.contentEl.createDiv({ cls: "tc-header" });
-    const anchors = anchorNodeIndexes(parsed);
     header.createDiv({ cls: "tc-header-title", text: file.basename });
     const counts = {
-      threads: parsed.threads.length - changeThreads(parsed).size,
+      threads: parsed.threads.length - onChange.size,
       suggestions: parsed.nodes.filter(isChangeNode).length,
       highlights: parsed.nodes.filter(
-        (n, i) => n.kind === "highlight" && !anchors.has(i),
+        (n, i) => n.kind === "highlight" && !anchored.has(i),
       ).length,
     };
     const parts: string[] = [];
@@ -319,8 +323,8 @@ export class ReviewPanelView extends ItemView {
     thread: Thread,
     threadNumber: number,
   ): void {
-    const anchorNode = thread.anchorIndex !== null ? parsed.nodes[thread.anchorIndex] : null;
-    const anchor = anchorNode?.kind === "highlight" ? anchorNode : null;
+    const anchor =
+      thread.anchorIndex !== null ? (parsed.nodes[thread.anchorIndex] as HighlightNode) : null;
     const card = list.createDiv({ cls: "tc-card tc-card-thread" });
     card.setAttr("data-tc-card-offset", String(thread.from));
     // Clicking the anchored span inline focuses this card, not a highlight card.
@@ -503,20 +507,21 @@ export class ReviewPanelView extends ItemView {
     const header = card.createDiv({ cls: "tc-card-header" });
     this.renderLineRef(header, source, n.from, thread ? `#${threadNumber}` : undefined);
     const actions = header.createDiv({ cls: "tc-card-actions" });
-    this.iconButton(
-      actions,
-      "check",
-      "Accept",
-      () => void this.host.applyEdits(file, resolveChange(source, parsed, n, "accept")),
-      "tc-icon-accept",
-    );
-    this.iconButton(
-      actions,
-      "x",
-      "Reject",
-      () => void this.host.applyEdits(file, resolveChange(source, parsed, n, "reject")),
-      "tc-icon-reject",
-    );
+    const resolve = async (action: "accept" | "reject"): Promise<void> => {
+      // Resolving takes the thread with it; replies are discussion worth a prompt.
+      if (thread && thread.replyIndexes.length > 0) {
+        const label = action === "accept" ? "Accept" : "Reject";
+        const confirmed = await this.confirmDestructiveAction(
+          `${label} suggestion`,
+          "This also removes the comment thread on this suggestion, including its replies.",
+          label,
+        );
+        if (!confirmed) return;
+      }
+      await this.host.applyEdits(file, resolveChange(source, parsed, n, action));
+    };
+    this.iconButton(actions, "check", "Accept", () => void resolve("accept"), "tc-icon-accept");
+    this.iconButton(actions, "x", "Reject", () => void resolve("reject"), "tc-icon-reject");
     let commentBox: HTMLElement | null = null;
     const openCommentBox = (): HTMLElement =>
       this.renderComposer(card, file, "Comment…", "Comment", this.commentDrafts, n.from, (text) =>
