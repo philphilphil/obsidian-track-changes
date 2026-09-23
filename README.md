@@ -33,6 +33,7 @@ Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~
 - *Open review panel*
 - *Finalize for publish* — accept additions, drop deletions and comments, etc.
 - *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also under *Track changes* in the editor's right-click menu
+- *Accept change at cursor*, *Reject change at cursor* — act on the suggestion the cursor is in; bind a hotkey for fast review. Also under *Track changes* in the right-click menu when the cursor is on a change
 
 ## Install
 

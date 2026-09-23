@@ -13,7 +13,17 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, buildAttributionPrefix, type SourceEdit } from "./operations";
+import {
+  applyEdits,
+  rebaseEdits,
+  buildAttributionPrefix,
+  findChangeAt,
+  acceptChange,
+  rejectChange,
+  type ChangeNode,
+  type SourceEdit,
+} from "./operations";
+import { parse } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import { buildMark, checkGuards, type AuthoringKind } from "./authoring";
@@ -96,6 +106,27 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       });
     }
 
+    this.addCommand({
+      id: "accept-change-at-cursor",
+      name: "Accept change at cursor",
+      icon: "check",
+      editorCheckCallback: (checking, editor, view) => {
+        if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+        if (!checking) void this.applyChangeAtCursor(editor, view, "accept");
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "reject-change-at-cursor",
+      name: "Reject change at cursor",
+      icon: "x",
+      editorCheckCallback: (checking, editor, view) => {
+        if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+        if (!checking) void this.applyChangeAtCursor(editor, view, "reject");
+        return true;
+      },
+    });
+
     // Right-click menu: a "Track changes" submenu with only the actions valid
     // for the current selection state. MenuItem.setSubmenu is not in the
     // public typings but exists at runtime on desktop; flat items otherwise.
@@ -106,7 +137,23 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const valid = AUTHORING_COMMANDS.filter((c) =>
           c.kind === "comment" ? true : c.kind === "addition" ? !hasSelection : hasSelection,
         );
+        const change = this.resolveChangeAtCursor(editor);
         const addItems = (target: Menu): void => {
+          if (typeof change !== "string") {
+            target.addItem((item) =>
+              item
+                .setTitle("Accept change")
+                .setIcon("check")
+                .onClick(() => void this.applyChangeAtCursor(editor, view, "accept")),
+            );
+            target.addItem((item) =>
+              item
+                .setTitle("Reject change")
+                .setIcon("x")
+                .onClick(() => void this.applyChangeAtCursor(editor, view, "reject")),
+            );
+            target.addSeparator();
+          }
           for (const c of valid) {
             target.addItem((item) =>
               item
@@ -315,6 +362,36 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     }
   }
 
+  // ---- accept/reject at cursor (issue #44) ----
+
+  /** The suggestion under the cursor, or the Notice text explaining why none. */
+  private resolveChangeAtCursor(editor: Editor): ChangeNode | string {
+    if (editor.listSelections().length > 1) {
+      return "Multiple cursors are not supported; collapse to a single selection.";
+    }
+    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    const source = cm ? cm.state.doc.toString() : editor.getValue();
+    const offset = editor.posToOffset(editor.getCursor("head"));
+    return findChangeAt(parse(source).nodes, offset) ?? "No change at cursor.";
+  }
+
+  private async applyChangeAtCursor(
+    editor: Editor,
+    view: MarkdownView,
+    action: "accept" | "reject",
+  ): Promise<void> {
+    const node = this.resolveChangeAtCursor(editor);
+    if (typeof node === "string") {
+      new Notice(node);
+      return;
+    }
+    if (!view.file) return;
+    const edit = action === "accept" ? acceptChange(node) : rejectChange(node);
+    await this.applyEditsToFile(view.file, [edit], {
+      cursorAfter: node.from + edit.insert.length,
+    });
+  }
+
   // ---- editor edit application ----
 
   /**
@@ -350,6 +427,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       if (cm) {
         cm.dispatch({
           changes: prepared.edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
+          selection:
+            options.cursorAfter !== undefined ? { anchor: options.cursorAfter } : undefined,
         });
         this.getReviewView()?.refreshFromSource(file, cm.state.doc.toString());
         return true;
@@ -534,6 +613,8 @@ interface ApplyEditsOptions {
   expectedSource?: string;
   /** Refuse partial success if any edit cannot be rebased. */
   requireAll?: boolean;
+  /** Where to put the cursor after a live-editor apply, in post-edit offsets. */
+  cursorAfter?: number;
 }
 
 type EditFailureReason = "stale" | "moved";

@@ -9,7 +9,15 @@
 // apply-time (because the user typed, or the AI re-edited the file) would be
 // corrupted by stale offsets.
 
-import type { CriticNode, Thread, ParseResult, CommentNode } from "./parser";
+import type {
+  CriticNode,
+  Thread,
+  ParseResult,
+  CommentNode,
+  AdditionNode,
+  DeletionNode,
+  SubstitutionNode,
+} from "./parser";
 
 export interface SourceEdit {
   from: number;
@@ -151,6 +159,39 @@ export function acceptSubstitution(node: CriticNode): SourceEdit {
 export function rejectSubstitution(node: CriticNode): SourceEdit {
   if (node.kind !== "substitution") throw new Error("rejectSubstitution: wrong node kind");
   return { from: node.from, to: node.to, insert: node.oldText, expected: node.raw };
+}
+
+export type ChangeNode = AdditionNode | DeletionNode | SubstitutionNode;
+
+/** The first suggestion whose range contains `offset`, ends inclusive. */
+export function findChangeAt(nodes: CriticNode[], offset: number): ChangeNode | null {
+  for (const n of nodes) {
+    if (n.kind !== "addition" && n.kind !== "deletion" && n.kind !== "substitution") continue;
+    if (n.from <= offset && offset <= n.to) return n;
+  }
+  return null;
+}
+
+export function acceptChange(node: ChangeNode): SourceEdit {
+  switch (node.kind) {
+    case "addition":
+      return acceptAddition(node);
+    case "deletion":
+      return acceptDeletion(node);
+    case "substitution":
+      return acceptSubstitution(node);
+  }
+}
+
+export function rejectChange(node: ChangeNode): SourceEdit {
+  switch (node.kind) {
+    case "addition":
+      return rejectAddition(node);
+    case "deletion":
+      return rejectDeletion(node);
+    case "substitution":
+      return rejectSubstitution(node);
+  }
 }
 
 /** Remove a highlight: strip the {==…==} wrapper, keep the inner text. */
