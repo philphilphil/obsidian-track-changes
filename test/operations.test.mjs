@@ -41,6 +41,7 @@ const {
   findChangeAt,
   acceptChange,
   rejectChange,
+  editsAtCursor,
 } = ops;
 
 // Local calendar day (YYYY-MM-DD), mirroring formatReplyDate's "date" style.
@@ -266,6 +267,40 @@ test("acceptChange/rejectChange dispatch per kind", () => {
     assert.equal(applyEdits(src, [acceptChange(node)]), accepted);
     assert.equal(applyEdits(src, [rejectChange(node)]), rejected);
   }
+});
+
+test("editsAtCursor: accept/reject a change, notice off one", () => {
+  const src = "x {++ins++} y";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 4, "accept")), "x ins y");
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 4, "reject")), "x  y");
+  assert.equal(editsAtCursor(parsed, 0, "accept"), "No change at cursor.");
+});
+
+test("editsAtCursor: remove a standalone highlight", () => {
+  const src = "x {==h==} y";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 9, "remove-highlight")), "x h y");
+  assert.equal(editsAtCursor(parsed, 0, "remove-highlight"), "No highlight at cursor.");
+});
+
+test("editsAtCursor: an anchor highlight is not removable on its own", () => {
+  const parsed = parse("{==h==}{>>c<<}");
+  assert.equal(typeof editsAtCursor(parsed, 3, "remove-highlight"), "string");
+});
+
+test("editsAtCursor: delete a reply keeps the anchor", () => {
+  const src = "{==h==}{>>a<<} {>>b<<} z";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(parsed, 17, "delete-comment")), "{==h==}{>>a<<}  z");
+});
+
+test("editsAtCursor: delete the only message removes its anchor", () => {
+  const src = "x {==h==}{>>c<<} y";
+  const parsed = parse(src);
+  const edits = editsAtCursor(parsed, 12, "delete-comment");
+  assert.equal(applyEdits(src, edits), "x h y");
+  assert.equal(editsAtCursor(parsed, 0, "delete-comment"), "No comment at cursor.");
 });
 
 console.log("done.");

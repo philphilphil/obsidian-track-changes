@@ -194,6 +194,51 @@ export function rejectChange(node: ChangeNode): SourceEdit {
   }
 }
 
+export type CursorAction = "accept" | "reject" | "remove-highlight" | "delete-comment";
+
+function indexOfKindAt(nodes: CriticNode[], offset: number, kind: CriticNode["kind"]): number {
+  return nodes.findIndex((n) => n.kind === kind && n.from <= offset && offset <= n.to);
+}
+
+/**
+ * Edits for `action` on the mark at `offset` (ends inclusive), or the Notice
+ * text explaining why there are none. Mirrors the panel: an anchor highlight
+ * is part of its thread's card, and deleting a thread's only message takes
+ * the anchor with it.
+ */
+export function editsAtCursor(
+  parsed: ParseResult,
+  offset: number,
+  action: CursorAction,
+): SourceEdit[] | string {
+  switch (action) {
+    case "accept":
+    case "reject": {
+      const node = findChangeAt(parsed.nodes, offset);
+      if (!node) return "No change at cursor.";
+      return [action === "accept" ? acceptChange(node) : rejectChange(node)];
+    }
+    case "remove-highlight": {
+      const i = indexOfKindAt(parsed.nodes, offset, "highlight");
+      if (i === -1) return "No highlight at cursor.";
+      if (parsed.threads.some((t) => t.anchorIndex === i)) {
+        return "This highlight belongs to a comment thread.";
+      }
+      return [removeHighlight(parsed.nodes[i])];
+    }
+    case "delete-comment": {
+      const i = indexOfKindAt(parsed.nodes, offset, "comment");
+      if (i === -1) return "No comment at cursor.";
+      const thread = parsed.threads[parsed.nodeThread[i]];
+      const edits = [deleteCommentNode(parsed.nodes[i])];
+      if (thread.anchorIndex !== null && thread.replyIndexes.length === 0) {
+        edits.unshift(removeHighlight(parsed.nodes[thread.anchorIndex]));
+      }
+      return edits;
+    }
+  }
+}
+
 /** Remove a highlight: strip the {==…==} wrapper, keep the inner text. */
 export function removeHighlight(node: CriticNode): SourceEdit {
   if (node.kind !== "highlight") throw new Error("removeHighlight: wrong node kind");

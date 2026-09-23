@@ -18,13 +18,11 @@ import {
   applyEdits,
   rebaseEdits,
   buildAttributionPrefix,
-  findChangeAt,
-  acceptChange,
-  rejectChange,
-  type ChangeNode,
+  editsAtCursor,
+  type CursorAction,
   type SourceEdit,
 } from "./operations";
-import { parse } from "./parser";
+import { parse, type ParseResult } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import { buildMark, checkGuards, type AuthoringKind } from "./authoring";
@@ -45,6 +43,43 @@ const AUTHORING_COMMANDS: ReadonlyArray<{
   { id: "mark-substitution", name: "Mark selection for substitution", kind: "substitution", icon: "pencil" },
   { id: "mark-highlight", name: "Highlight selection", kind: "highlight", icon: "highlighter" },
   { id: "insert-comment", name: "Insert comment", kind: "comment", icon: "message-square" },
+];
+
+const CURSOR_COMMANDS: ReadonlyArray<{
+  id: string;
+  name: string;
+  menuTitle: string;
+  action: CursorAction;
+  icon: string;
+}> = [
+  {
+    id: "accept-change-at-cursor",
+    name: "Accept change at cursor",
+    menuTitle: "Accept change",
+    action: "accept",
+    icon: "check",
+  },
+  {
+    id: "reject-change-at-cursor",
+    name: "Reject change at cursor",
+    menuTitle: "Reject change",
+    action: "reject",
+    icon: "x",
+  },
+  {
+    id: "remove-highlight-at-cursor",
+    name: "Remove highlight at cursor",
+    menuTitle: "Remove highlight",
+    action: "remove-highlight",
+    icon: "eraser",
+  },
+  {
+    id: "delete-comment-at-cursor",
+    name: "Delete comment at cursor",
+    menuTitle: "Delete comment",
+    action: "delete-comment",
+    icon: "trash-2",
+  },
 ];
 
 export default class TrackChangesCriticMarkupPlugin extends Plugin {
@@ -107,61 +142,53 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       });
     }
 
-    this.addCommand({
-      id: "accept-change-at-cursor",
-      name: "Accept change at cursor",
-      icon: "check",
-      editorCheckCallback: (checking, editor, view) => {
-        if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
-        if (!checking) void this.applyChangeAtCursor(editor, view, "accept");
-        return true;
-      },
-    });
-    this.addCommand({
-      id: "reject-change-at-cursor",
-      name: "Reject change at cursor",
-      icon: "x",
-      editorCheckCallback: (checking, editor, view) => {
-        if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
-        if (!checking) void this.applyChangeAtCursor(editor, view, "reject");
-        return true;
-      },
-    });
+    for (const c of CURSOR_COMMANDS) {
+      this.addCommand({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        editorCheckCallback: (checking, editor, view) => {
+          if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+          if (!checking) void this.applyAtCursor(editor, view, c.action);
+          return true;
+        },
+      });
+    }
 
-    // Right-click menu: a "Track changes" submenu with only the actions valid
-    // for the current selection state. MenuItem.setSubmenu is not in the
-    // public typings but exists at runtime on desktop; flat items otherwise.
+    // Right-click menu: a "Track changes" submenu with only the actions that
+    // would succeed. On a mark (inside or touching) that is the mark's own
+    // actions; elsewhere the authoring actions the guards allow.
+    // MenuItem.setSubmenu is not in the public typings but exists at runtime
+    // on desktop; flat items otherwise.
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return;
-        const hasSelection = editor.somethingSelected();
-        const valid = AUTHORING_COMMANDS.filter((c) =>
-          c.kind === "comment" ? true : c.kind === "addition" ? !hasSelection : hasSelection,
-        );
-        const change = this.resolveChangeAtCursor(editor);
-        const addItems = (target: Menu): void => {
-          if (typeof change !== "string") {
-            target.addItem((item) =>
-              item
-                .setTitle("Accept change")
-                .setIcon("check")
-                .onClick(() => void this.applyChangeAtCursor(editor, view, "accept")),
-            );
-            target.addItem((item) =>
-              item
-                .setTitle("Reject change")
-                .setIcon("x")
-                .onClick(() => void this.applyChangeAtCursor(editor, view, "reject")),
-            );
-            target.addSeparator();
+        const ctx = this.cursorContext(editor);
+        if (typeof ctx === "string") return;
+        const items: { title: string; icon: string; run: () => void }[] = CURSOR_COMMANDS.filter(
+          (c) => typeof editsAtCursor(ctx.parsed, ctx.offset, c.action) !== "string",
+        ).map((c) => ({
+          title: c.menuTitle,
+          icon: c.icon,
+          run: () => void this.applyAtCursor(editor, view, c.action),
+        }));
+        if (items.length === 0) {
+          const from = editor.posToOffset(editor.getCursor("from"));
+          const to = editor.posToOffset(editor.getCursor("to"));
+          for (const c of AUTHORING_COMMANDS) {
+            const fitsSelection = c.kind === "comment" || (c.kind === "addition") === (from === to);
+            if (!fitsSelection || checkGuards(ctx.source, from, to, c.kind) !== null) continue;
+            items.push({
+              title: c.name,
+              icon: c.icon,
+              run: () => this.insertAuthoredMark(editor, c.kind),
+            });
           }
-          for (const c of valid) {
-            target.addItem((item) =>
-              item
-                .setTitle(c.name)
-                .setIcon(c.icon)
-                .onClick(() => this.insertAuthoredMark(editor, c.kind)),
-            );
+        }
+        if (items.length === 0) return;
+        const addItems = (target: Menu): void => {
+          for (const it of items) {
+            target.addItem((item) => item.setTitle(it.title).setIcon(it.icon).onClick(it.run));
           }
         };
         menu.addSeparator();
@@ -363,35 +390,39 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     }
   }
 
-  // ---- accept/reject at cursor (issue #44) ----
+  // ---- actions at cursor (issue #44) ----
 
-  /** The suggestion under the cursor, or the Notice text explaining why none. */
-  private resolveChangeAtCursor(editor: Editor): ChangeNode | string {
+  private cursorContext(
+    editor: Editor,
+  ): { source: string; parsed: ParseResult; offset: number } | string {
     if (editor.listSelections().length > 1) {
       return "Multiple cursors are not supported; collapse to a single selection.";
     }
     const cm = (editor as unknown as { cm?: EditorView }).cm;
     const source = cm ? cm.state.doc.toString() : editor.getValue();
-    const offset = editor.posToOffset(editor.getCursor("head"));
-    return findChangeAt(parse(source).nodes, offset) ?? "No change at cursor.";
+    return {
+      source,
+      parsed: parse(source),
+      offset: editor.posToOffset(editor.getCursor("head")),
+    };
   }
 
-  private async applyChangeAtCursor(
+  private async applyAtCursor(
     editor: Editor,
     view: MarkdownView,
-    action: "accept" | "reject",
+    action: CursorAction,
   ): Promise<void> {
-    const node = this.resolveChangeAtCursor(editor);
-    if (typeof node === "string") {
-      new Notice(node);
+    const ctx = this.cursorContext(editor);
+    const edits = typeof ctx === "string" ? ctx : editsAtCursor(ctx.parsed, ctx.offset, action);
+    if (typeof edits === "string") {
+      new Notice(edits);
       return;
     }
     if (!view.file) return;
-    const edit = action === "accept" ? acceptChange(node) : rejectChange(node);
-    await this.applyEditsToFile(view.file, [edit], {
-      editor,
-      cursorAfter: node.from + edit.insert.length,
-    });
+    // Cursor lands after the last edit's replacement, in post-edit offsets.
+    const last = edits[edits.length - 1];
+    const shift = edits.reduce((d, e) => d + e.insert.length - (e.to - e.from), 0);
+    await this.applyEditsToFile(view.file, edits, { editor, cursorAfter: last.to + shift });
   }
 
   // ---- editor edit application ----
