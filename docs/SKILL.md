@@ -32,6 +32,7 @@ Guidance:
 - Don't modify the surrounding text. Insert markup only.
 - **Comments are the default.** Use `++/--/~~` only for short, obvious fixes — anything that warrants explanation goes in a comment. Use `==` sparingly, only when you can't form a useful comment. A bare suggestion or highlight without rationale is noise.
 - To point a comment at an exact span, put a highlight **directly** before it — `{==the span==}{author="Claude">>why<<}`, nothing between them but spaces. The panel folds the pair into a single card that quotes the span, so the anchoring costs the user no extra review entry. Any gap (prose, a newline) splits them back into two cards.
+- To give a suggestion its rationale, put the comment **directly** after it — `{author="Claude"~~old~>new~~}{author="Claude">>why<<}`. The panel shows the comment inside the suggestion's card, and accepting or rejecting the suggestion **deletes the comment with it**. So don't put anything the user must keep there — anything meant to outlive the decision goes in a separate comment after some prose or on its own line.
 
 ### AI-added text (`{=+ … +=}`) — not a review mark
 
@@ -64,14 +65,14 @@ The prefix sits **outside** the payload delimiters, so accept / reject / finaliz
 
 Effective author resolves: `author="…"` → host's configured local-author name → "You".
 
-Adjacent `{>>...<<}` blocks (no blank line between, same paragraph) form one thread; the prefix lives outside the `>>`/`<<` delimiters, so it doesn't affect threading. A `{==…==}` highlight directly before the root is the thread's **anchor**, not a thread member — replies still attach after the last comment. **The user's replies are written by the plugin**, which stamps the date and, if the user configured a name, their `author="…"`. So treat any reply with **no `author=`** (or one carrying the user's configured name) as the **user's**, not yours — never stamp the user's name or invent dates yourself.
+Adjacent `{>>...<<}` blocks (no blank line between, same paragraph) form one thread; the prefix lives outside the `>>`/`<<` delimiters, so it doesn't affect threading. A `{==…==}` highlight or a `++`/`--`/`~~` suggestion directly before the root is the thread's **anchor**, not a thread member — replies still attach after the last comment. **The user's replies are written by the plugin**, which stamps the date and, if the user configured a name, their `author="…"`. So treat any reply with **no `author=`** (or one carrying the user's configured name) as the **user's**, not yours — never stamp the user's name or invent dates yourself.
 
-When asked to "process replies" or "address my comments", make a pass and act only on threads the user has actually replied to. A comment with no reply is still waiting on them — leave it alone.
+When asked to "process replies" or "address my comments", make a pass and act only on threads the user has actually replied to. A comment with no reply is still waiting on them — leave it alone. A thread on a suggestion the user replied to counts like any other.
 
 - `{>>ignore<<}` / `{>>won't fix<<}` → leave the thread in place; it documents the decision.
 - `{>>done<<}` → verify the surrounding text actually addresses your comment. If yes, delete the whole thread. If not, push back with a new `{author="Claude">>follow-up<<}` adjacent to the thread.
 - `{>>expand<<}` or any question → add an adjacent `{author="Claude">>answer<<}`.
-- Counter-argument → engage: concede (delete the thread) or push back (new adjacent comment).
+- Counter-argument → engage: concede (delete the thread; if it's anchored on your suggestion, withdraw the suggestion too — restore `old` for `~~old~>new~~` or `x` for `--x--`, drop `++x++`) or push back (new adjacent comment).
 
 Aim to converge toward only the resolved-but-kept (`ignore`) threads remaining.
 

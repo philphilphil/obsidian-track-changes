@@ -42,6 +42,9 @@ const {
   acceptChange,
   rejectChange,
   editsAtCursor,
+  appendComment,
+  resolveChange,
+  rebaseEdits,
 } = ops;
 
 // Local calendar day (YYYY-MM-DD), mirroring formatReplyDate's "date" style.
@@ -272,35 +275,154 @@ test("acceptChange/rejectChange dispatch per kind", () => {
 test("editsAtCursor: accept/reject a change, notice off one", () => {
   const src = "x {++ins++} y";
   const parsed = parse(src);
-  assert.equal(applyEdits(src, editsAtCursor(parsed, 4, "accept")), "x ins y");
-  assert.equal(applyEdits(src, editsAtCursor(parsed, 4, "reject")), "x  y");
-  assert.equal(editsAtCursor(parsed, 0, "accept"), "No change at cursor.");
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, 4, "accept")), "x ins y");
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, 4, "reject")), "x  y");
+  assert.equal(editsAtCursor(src, parsed, 0, "accept"), "No change at cursor.");
 });
 
 test("editsAtCursor: remove a standalone highlight", () => {
   const src = "x {==h==} y";
   const parsed = parse(src);
-  assert.equal(applyEdits(src, editsAtCursor(parsed, 9, "remove-highlight")), "x h y");
-  assert.equal(editsAtCursor(parsed, 0, "remove-highlight"), "No highlight at cursor.");
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, 9, "remove-highlight")), "x h y");
+  assert.equal(editsAtCursor(src, parsed, 0, "remove-highlight"), "No highlight at cursor.");
 });
 
 test("editsAtCursor: an anchor highlight is not removable on its own", () => {
-  const parsed = parse("{==h==}{>>c<<}");
-  assert.equal(typeof editsAtCursor(parsed, 3, "remove-highlight"), "string");
+  const src = "{==h==}{>>c<<}";
+  const parsed = parse(src);
+  assert.equal(typeof editsAtCursor(src, parsed, 3, "remove-highlight"), "string");
 });
 
 test("editsAtCursor: delete a reply keeps the anchor", () => {
   const src = "{==h==}{>>a<<} {>>b<<} z";
   const parsed = parse(src);
-  assert.equal(applyEdits(src, editsAtCursor(parsed, 17, "delete-comment")), "{==h==}{>>a<<}  z");
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, 17, "delete-comment")), "{==h==}{>>a<<}  z");
 });
 
 test("editsAtCursor: delete the only message removes its anchor", () => {
   const src = "x {==h==}{>>c<<} y";
   const parsed = parse(src);
-  const edits = editsAtCursor(parsed, 12, "delete-comment");
+  const edits = editsAtCursor(src, parsed, 12, "delete-comment");
   assert.equal(applyEdits(src, edits), "x h y");
-  assert.equal(editsAtCursor(parsed, 0, "delete-comment"), "No comment at cursor.");
+  assert.equal(editsAtCursor(src, parsed, 0, "delete-comment"), "No comment at cursor.");
+});
+
+// ---- comments on suggestions (issue #45) ----
+
+test("appendComment: inserts an attributed comment the parser anchors on the change", () => {
+  for (const src of ["x {++ins++} y", "x {--gone--} y", 'x {author="AI"~~a~>b~~} y']) {
+    const parsed = parse(src);
+    const change = parsed.nodes[0];
+    const edit = appendComment(src, change, "why?", "Phil", "date");
+    assert.equal(edit.from, change.to);
+    assert.equal(edit.expected, "");
+    assert.equal(edit.before, src.slice(0, change.to));
+    const next = applyEdits(src, [edit]);
+    assert.ok(next.includes(`${change.raw}{author="Phil" date="${localDay()}">>why?<<}`));
+    const after = parse(next);
+    assert.equal(after.threads.length, 1);
+    assert.equal(after.nodes[after.threads[0].changeIndex].kind, change.kind);
+  }
+});
+
+test("appendComment: a stale insert doesn't relocate onto an identical change", () => {
+  const src = "A {--very--} fast. B {--very--} slow.";
+  const edit = appendComment(src, parse(src).nodes[0], "why");
+  assert.equal(rebaseEdits("A  fast. B {--very--} slow.", [edit]).dropped, 1);
+  const shifted = `intro ${src}`;
+  const { edits } = rebaseEdits(shifted, [edit]);
+  assert.equal(applyEdits(shifted, edits), `intro A {--very--}{date="${localDay()}">>why<<} fast. B {--very--} slow.`);
+});
+
+test("appendComment: rejects the comment close marker", () => {
+  const change = parse("{++a++}").nodes[0];
+  assert.throws(() => appendComment("{++a++}", change, "bad <<} text"));
+});
+
+test("appendComment: no author name → date only", () => {
+  const change = parse("{++a++}").nodes[0];
+  assert.equal(appendComment("{++a++}", change, "c").insert, `{date="${localDay()}">>c<<}`);
+});
+
+test("resolveChange: accept/reject remove the anchored thread", () => {
+  const cases = [
+    ["x {++ins++}{>>why<<} y", "x ins y", "x  y"],
+    ["x {--gone--} \t{>>a<<} {>>b<<} y", "x  y", "x gone y"],
+    ['x {~~old~>new~~}{author="AI">>r<<}{>>ok<<} y', "x new y", "x old y"],
+  ];
+  for (const [src, accepted, rejected] of cases) {
+    const parsed = parse(src);
+    const change = parsed.nodes[0];
+    const acc = resolveChange(src, parsed, change, "accept");
+    assert.equal(acc.length, 1);
+    assert.equal(applyEdits(src, acc), accepted);
+    assert.equal(applyEdits(src, resolveChange(src, parsed, change, "reject")), rejected);
+  }
+});
+
+test("resolveChange: change + thread rebase as one unit", () => {
+  const src = "x {++ins++}{>>why<<} y";
+  const parsed = parse(src);
+  const edits = resolveChange(src, parsed, parsed.nodes[0], "accept");
+  assert.equal(rebaseEdits(src, edits).dropped, 0);
+  assert.equal(applyEdits(src, rebaseEdits(src, edits).edits), "x ins y");
+  for (const drifted of [
+    `PREFIX ${src}`,
+    "x {++ins++} {>>why<<} y",
+    "x {++ins++}{>>wht<<} y",
+    "x {++int++}{>>why<<} y",
+  ]) {
+    const r = rebaseEdits(drifted, edits);
+    assert.equal(r.edits.length, 0, drifted);
+  }
+});
+
+test("resolveChange: a drifted rationale can't re-anchor on the neighbouring change", () => {
+  const src = "{--old--}{++new++}{>>why<<}";
+  const parsed = parse(src);
+  const edits = resolveChange(src, parsed, parsed.nodes[1], "reject");
+  assert.equal(applyEdits(src, edits), "{--old--}");
+  assert.equal(rebaseEdits("{--old--}{++new++}{>>why!<<}", edits).edits.length, 0);
+});
+
+test("resolveChange: a change without a thread, or with an unanchored one, is just resolved", () => {
+  const src = "x {++ins++} and {>>far<<} y";
+  const parsed = parse(src);
+  const edits = resolveChange(src, parsed, parsed.nodes[0], "accept");
+  assert.equal(edits.length, 1);
+  assert.equal(applyEdits(src, edits), "x ins and {>>far<<} y");
+});
+
+test("resolveChange: a highlight-anchored thread after the change is not taken", () => {
+  const src = "{++a++}{==h==}{>>c<<}";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, resolveChange(src, parsed, parsed.nodes[0], "accept")), "a{==h==}{>>c<<}");
+});
+
+test("editsAtCursor: accept/reject a change removes its thread", () => {
+  const src = "x {++ins++}{>>why<<} {>>ok<<} y";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, 4, "accept")), "x ins y");
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, 4, "reject")), "x  y");
+});
+
+test("editsAtCursor: deleting the only comment on a change never touches the change", () => {
+  const src = "x {++ins++}{>>why<<} y";
+  const parsed = parse(src);
+  const edits = editsAtCursor(src, parsed, src.indexOf("why"), "delete-comment");
+  assert.equal(edits.length, 1);
+  assert.equal(applyEdits(src, edits), "x {++ins++} y");
+});
+
+test("editsAtCursor: deleting a reply on a change keeps the change and root", () => {
+  const src = "{~~a~>b~~}{>>r<<}{>>ok<<}";
+  const parsed = parse(src);
+  assert.equal(applyEdits(src, editsAtCursor(src, parsed, src.indexOf("ok"), "delete-comment")), "{~~a~>b~~}{>>r<<}");
+});
+
+test("finalize: a change with its thread finalizes cleanly", () => {
+  const src = "a {++b++}{>>why<<} {>>ok<<} c {--d--}{>>r<<} e";
+  assert.equal(applyEdits(src, finalizeEdits(parse(src), DEFAULT_FINALIZE)), "a b  c d e");
 });
 
 console.log("done.");

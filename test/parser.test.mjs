@@ -19,7 +19,7 @@ const out = await build({
 });
 const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
-const { parse, threadAtOffset, nodeAtOffset, anchorNodeIndexes } = mod;
+const { parse, threadAtOffset, nodeAtOffset, anchorNodeIndexes, changeThreads } = mod;
 
 function test(name, fn) {
   try {
@@ -131,13 +131,48 @@ test("highlight separated from the comment by prose or a newline is not an ancho
   assert.equal(parse("{==word==}").threads.length, 0);
 });
 
-test("only the root claims an anchor; replies and other marks don't", () => {
+test("only the root claims an anchor; replies and a preceding comment don't", () => {
   const r = parse("{==word==}{>>a<<}{>>b<<}");
   assert.equal(r.threads.length, 1);
   assert.equal(r.threads[0].anchorIndex, 0);
   assert.equal(r.threads[0].replyIndexes.length, 1);
-  assert.equal(parse("{++new++}{>>why?<<}").threads[0].anchorIndex, null);
-  assert.deepEqual([...anchorNodeIndexes(parse("{++new++}{>>why?<<}"))], []);
+  assert.equal(parse("{>>a<<}\n{>>b<<}").threads[1].anchorIndex, null);
+});
+
+test("a change directly before a thread root becomes its anchor", () => {
+  for (const [src, kind] of [
+    ["x {++new++}{>>why?<<} y", "addition"],
+    ["x {--old--} \t {>>why?<<} y", "deletion"],
+    ['x {author="AI"~~a~>b~~}{author="AI">>why?<<}{>>ok<<} y', "substitution"],
+  ]) {
+    const r = parse(src);
+    assert.equal(r.threads.length, 1);
+    const t = r.threads[0];
+    assert.equal(r.nodes[t.changeIndex].kind, kind);
+    assert.equal(t.anchorIndex, null);
+    assert.equal(t.from, r.nodes[t.rootIndex].from);
+    assert.deepEqual([...changeThreads(r)], [[t.changeIndex, 0]]);
+    // Highlight-only helper: change anchors don't hide highlight cards.
+    assert.deepEqual([...anchorNodeIndexes(r)], []);
+  }
+});
+
+test("a change separated from the comment by prose or a newline is not an anchor", () => {
+  assert.equal(parse("{++a++} and {>>why?<<}").threads[0].changeIndex, null);
+  assert.equal(parse("{++a++}\n{>>why?<<}").threads[0].changeIndex, null);
+  assert.equal(changeThreads(parse("{++a++} and {>>why?<<}")).size, 0);
+});
+
+test("aitext never anchors a thread", () => {
+  const t = parse("{=+ai+=}{>>why?<<}").threads[0];
+  assert.equal(t.anchorIndex, null);
+  assert.equal(t.changeIndex, null);
+});
+
+test("only the change adjacent to the root anchors", () => {
+  const r = parse("{--a--}{++b++}{>>why<<}");
+  assert.equal(r.threads[0].changeIndex, 1);
+  assert.equal(r.nodes[1].kind, "addition");
 });
 
 test("multi-author thread (Claude root, GPT reply) preserves both names", () => {
