@@ -235,6 +235,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       // Coerce the persisted enum so a hand-edited / future-renamed value can't
       // leak an invalid style downstream; anything but "datetime" means "date".
       replyDateStyle: stored.replyDateStyle === "datetime" ? "datetime" : "date",
+      panelLocation: stored.panelLocation === "split" ? "split" : "sidebar",
       finalize: { ...DEFAULT_SETTINGS.finalize, ...(stored.finalize ?? {}) },
     };
   }
@@ -315,7 +316,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       await this.app.workspace.revealLeaf(existing[0]);
       return;
     }
-    const leaf = this.app.workspace.getRightLeaf(false);
+    const leaf =
+      this.settings.panelLocation === "split"
+        ? this.app.workspace.getLeaf("split", "vertical")
+        : this.app.workspace.getRightLeaf(false);
     if (!leaf) {
       new Notice("Could not open review panel.");
       return;

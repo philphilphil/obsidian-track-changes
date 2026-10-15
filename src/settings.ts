@@ -3,6 +3,8 @@ import type TrackChangesCriticMarkupPlugin from "./main";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 import type { ReplyDateStyle } from "./operations";
 
+export type PanelLocation = "sidebar" | "split";
+
 export interface TrackChangesCriticMarkupSettings {
   /**
    * Show comment icons in reading mode. On by default — each thread renders
@@ -41,6 +43,10 @@ export interface TrackChangesCriticMarkupSettings {
   /** Whether plugin-written replies stamp a date ("date", default) or a full
    *  second-precision ISO timestamp ("datetime"). Display-only either way. */
   replyDateStyle: ReplyDateStyle;
+  /** Where the review panel opens when it isn't already open: the right
+   *  sidebar ("sidebar", default) or a new vertical split beside the active
+   *  note ("split"). An existing panel is always revealed where it is. */
+  panelLocation: PanelLocation;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -53,6 +59,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   highlightChangedChars: true,
   localAuthorName: "",
   replyDateStyle: "date",
+  panelLocation: "sidebar",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -106,6 +113,18 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
             name: "Highlight changed characters",
             desc: "In a substitution, emphasize the specific characters that changed within the old and new text. Applies to the panel and Live Preview.",
             control: { type: "toggle", key: "highlightChangedChars" },
+          },
+          {
+            name: "Open review panel in",
+            desc: "Where the panel opens when it isn't open yet. An open panel stays where it is.",
+            control: {
+              type: "dropdown",
+              key: "panelLocation",
+              options: {
+                sidebar: "Right sidebar",
+                split: "New split beside the note",
+              },
+            },
           },
           {
             name: "Confirm before deleting",
