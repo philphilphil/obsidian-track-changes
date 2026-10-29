@@ -254,6 +254,127 @@ body {
   background: var(--tc-sub-new-changed-bg);
 }
 
+/* ---------- Scope labels: per-note panel vs vault-wide overview ---------- */
+
+.tc-scope {
+  display: inline-block;
+  font-size: 0.7em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+  border-radius: 9px;
+  line-height: 1.6;
+  flex: none;
+}
+.tc-scope-note {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.95em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+.tc-scope-vault {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* ---------- Pending changes overview (vault-wide) ---------- */
+
+.tc-overview-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tc-overview-title-row .tc-header-title {
+  flex: 1;
+}
+.tc-overview-rescan {
+  flex: none;
+}
+@keyframes tc-spin {
+  to { transform: rotate(360deg); }
+}
+.tc-overview-spinning svg {
+  animation: tc-spin 1s linear infinite;
+}
+.tc-overview-filter {
+  width: 100%;
+}
+.tc-overview-list {
+  gap: 6px;
+}
+.tc-overview-row {
+  padding: 8px 10px;
+  gap: 6px;
+}
+.tc-overview-row-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+}
+.tc-overview-name-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.tc-overview-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-overview-folder {
+  font-size: 0.78em;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-overview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tc-overview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8em;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+.tc-overview-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+.tc-chip-suggestions:not(.tc-overview-chip-zero) {
+  background: var(--tc-add-bg);
+  color: var(--text-normal);
+}
+.tc-chip-comments:not(.tc-overview-chip-zero) {
+  background: var(--tc-comment-you-bg);
+  color: var(--text-normal);
+}
+.tc-chip-highlights:not(.tc-overview-chip-zero) {
+  background: var(--tc-highlight-bg);
+  color: var(--text-normal);
+}
+.tc-overview-chip-zero {
+  opacity: 0.55;
+}
+.tc-status.mod-clickable {
+  cursor: pointer;
+}
+
 /* ---------- Right panel ---------- */
 
 .tc-panel {

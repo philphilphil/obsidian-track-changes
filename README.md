@@ -24,6 +24,7 @@ Your agent needs to know the mark format. Two starting points:
 - Comment on a suggestion — the comment shows inside the suggestion's card and goes away when the suggestion is accepted or rejected
 - **Human authoring** — insert or mark selections as any of the five CriticMarkup forms yourself, from the command palette or the *Track changes* right-click submenu, stamped with your name and date like a reply
 - **Finalize for publish** — resolves all remaining markup in one pass
+- **Pending changes overview** — a vault-wide list of every note that still has suggestions, comments or highlights, most to review first, with per-file counts; click a row to open the note and its review panel. A status-bar item shows the vault-wide total (hidden when there is nothing to review) and opens the overview
 - Reading mode: accepted preview or raw side-by-side
 - Custom colors and tint intensity for additions, deletions, highlights, comments and AI-added text
 - Code blocks left alone
@@ -38,6 +39,8 @@ Your agent needs to know the mark format. Two starting points:
 ## Commands
 
 - *Open review panel*
+- *Open pending changes overview* — the vault-wide list (also the list-checks ribbon icon and the status-bar count)
+- *Rescan vault for pending changes* — the overview keeps itself current from vault events; this forces a full re-read
 - *Finalize for publish* — accept additions, drop deletions and comments, etc.
 - *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also under *Track changes* in the editor's right-click menu
 - *Accept change at cursor*, *Reject change at cursor*, *Remove highlight at cursor*, *Delete comment at cursor* — act on the mark the cursor is in; bind hotkeys for fast review. Also under *Track changes* in the right-click menu when the cursor is on a matching mark

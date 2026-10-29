@@ -16,6 +16,9 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
+import { OVERVIEW_VIEW_TYPE, PendingOverviewView, type OverviewHost } from "./panel/overview";
+import { VaultIndex } from "./vault-index";
+import { describeSummary, totals } from "./pending";
 import {
   applyEdits,
   rebaseEdits,
@@ -101,8 +104,19 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   // on doc changes).
   private editorExtensions: Extension[] = [];
 
+  /** Per-file pending counts for the whole vault (overview view + status bar). */
+  index!: VaultIndex;
+  private statusBarEl: HTMLElement | null = null;
+
   async onload(): Promise<void> {
     await this.loadSettings();
+
+    // Vault-wide index of pending review items. Events are registered now;
+    // the first full scan waits for the layout so startup isn't slowed.
+    this.index = new VaultIndex(this.app);
+    this.index.register(this);
+    this.index.onChange(() => this.updateStatusBar());
+    this.registerView(OVERVIEW_VIEW_TYPE, (leaf) => this.makeOverviewView(leaf));
 
     // Colour overrides live as inline CSS variables on each window's body.
     this.applyColors();
@@ -131,6 +145,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       id: "open-review-panel",
       name: "Open review panel",
       callback: () => this.openReviewPanel(),
+    });
+    this.addCommand({
+      id: "open-pending-overview",
+      name: "Open pending changes overview",
+      callback: () => this.openOverview(),
+    });
+    this.addCommand({
+      id: "rescan-pending-changes",
+      name: "Rescan vault for pending changes",
+      callback: () => void this.index.scanAll(),
     });
     this.addCommand({
       id: "finalize-for-publish",
@@ -232,13 +256,98 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       this.openReviewPanel(),
     );
 
+    this.addRibbonIcon("list-checks", "Open pending changes overview", () =>
+      this.openOverview(),
+    );
+
+    // Status bar: vault-wide pending count, click to open the overview.
+    this.statusBarEl = this.addStatusBarItem();
+    this.statusBarEl.addClass("tc-status", "mod-clickable");
+    this.statusBarEl.addEventListener("click", () => void this.openOverview());
+    this.updateStatusBar();
+
     // Settings tab.
     this.addSettingTab(new TrackChangesCriticMarkupSettingsTab(this.app, this));
 
-    // Open panel automatically after layout is ready, if not already.
+    // Don't force-open the panel on first run; user can use the ribbon/command.
+    // The vault scan waits for the layout so it never competes with startup.
     this.app.workspace.onLayoutReady(() => {
-      // Don't force-open on first run; user can use the ribbon/command.
+      void this.index.scanAll();
     });
+  }
+
+  // ---- vault-wide pending overview ----
+
+  private makeOverviewView(leaf: WorkspaceLeaf): PendingOverviewView {
+    const host: OverviewHost = {
+      index: this.index,
+      openFileForReview: (path) => this.openFileForReview(path),
+      activeFilePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+    };
+    return new PendingOverviewView(leaf, host);
+  }
+
+  private async openOverview(): Promise<void> {
+    const workspace = this.app.workspace;
+    const existing = workspace.getLeavesOfType(OVERVIEW_VIEW_TYPE)[0];
+    if (existing) {
+      await workspace.revealLeaf(existing);
+      return;
+    }
+    // Left sidebar: Obsidian's convention puts vault-wide navigation (file
+    // explorer, search, tags) on the left and per-note context (outline,
+    // backlinks, the review panel) on the right.
+    const leaf = workspace.getLeftLeaf(false);
+    if (!leaf) {
+      new Notice("Could not open the pending changes overview.");
+      return;
+    }
+    await leaf.setViewState({ type: OVERVIEW_VIEW_TYPE, active: true });
+    await workspace.revealLeaf(leaf);
+  }
+
+  /** Open a note in the main area and show the review panel for it. */
+  private async openFileForReview(path: string): Promise<void> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) {
+      new Notice("File not found: " + path);
+      return;
+    }
+    const workspace = this.app.workspace;
+    // Reuse a tab that already shows the file; otherwise open a new one.
+    const open = workspace.getLeavesOfType("markdown").find(
+      (leaf) => leaf.view instanceof MarkdownView && leaf.view.file === file,
+    );
+    let leaf: WorkspaceLeaf;
+    if (open) {
+      leaf = open;
+      await workspace.revealLeaf(leaf);
+    } else {
+      leaf = workspace.getLeaf("tab");
+      await leaf.openFile(file);
+    }
+    workspace.setActiveLeaf(leaf, { focus: true });
+    await this.openReviewPanel(leaf);
+  }
+
+  /** Repaint the status-bar count from the index. Hidden when nothing is pending. */
+  updateStatusBar(): void {
+    const el = this.statusBarEl;
+    if (!el) return;
+    if (!this.settings.showPendingStatusBar) {
+      el.hide();
+      return;
+    }
+    const sum = totals(this.index.rows());
+    if (sum.files === 0) {
+      el.hide();
+      return;
+    }
+    el.show();
+    const items = sum.suggestions + sum.comments + sum.highlights;
+    el.setText(`${items} to review · ${sum.files} ${sum.files === 1 ? "file" : "files"}`);
+    el.setAttr("aria-label", `Track changes: ${describeSummary(sum)} across ${sum.files} ${sum.files === 1 ? "file" : "files"}. Click to open the overview.`);
+    el.setAttr("data-tooltip-position", "top");
   }
 
   onunload(): void {
@@ -263,6 +372,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       // leak an invalid style downstream; anything but "datetime" means "date".
       replyDateStyle: stored.replyDateStyle === "datetime" ? "datetime" : "date",
       panelLocation: stored.panelLocation === "split" ? "split" : "sidebar",
+      showPendingStatusBar: stored.showPendingStatusBar !== false,
       colors,
       markIntensity: Number.isFinite(intensity)
         ? Math.min(MAX_MARK_INTENSITY, Math.max(MIN_MARK_INTENSITY, intensity))

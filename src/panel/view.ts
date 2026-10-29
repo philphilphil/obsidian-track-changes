@@ -306,7 +306,9 @@ export class ReviewPanelView extends ItemView {
     onChange: Map<number, number>,
   ): void {
     const header = this.contentEl.createDiv({ cls: "tc-header" });
-    header.createDiv({ cls: "tc-header-title", text: file.basename });
+    // The file name is the scope label: this panel is about one note, and
+    // the vault-wide overview carries its own "Whole vault" label.
+    header.createDiv({ cls: "tc-header-title tc-scope tc-scope-note", text: file.basename });
     const counts = {
       threads: parsed.threads.length - onChange.size,
       suggestions: parsed.nodes.filter(isChangeNode).length,

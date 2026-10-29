@@ -56,6 +56,9 @@ export interface TrackChangesCriticMarkupSettings {
    *  sidebar ("sidebar", default) or a new vertical split beside the active
    *  note ("split"). An existing panel is always revealed where it is. */
   panelLocation: PanelLocation;
+  /** Show the vault-wide "N to review · M files" item in the status bar
+   *  (hidden automatically when nothing is pending). On by default. */
+  showPendingStatusBar: boolean;
   /** Colour overrides for marks; `""` per entry keeps the built-in colour. */
   colors: MarkColors;
   /** Percentage multiplier on the tint alphas (100 = built-in strength). */
@@ -73,6 +76,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   localAuthorName: "",
   replyDateStyle: "date",
   panelLocation: "sidebar",
+  showPendingStatusBar: true,
   colors: { ...EMPTY_MARK_COLORS },
   markIntensity: DEFAULT_MARK_INTENSITY,
   finalize: { ...DEFAULT_FINALIZE },
@@ -156,6 +160,11 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
             name: "Confirm before deleting",
             desc: "Ask before deleting a comment or thread. Turn off to delete immediately.",
             control: { type: "toggle", key: "confirmBeforeDelete" },
+          },
+          {
+            name: "Show pending count in status bar",
+            desc: "A vault-wide \"N to review · M files\" item in the status bar; click it to open the pending changes overview. Hidden when nothing is pending.",
+            control: { type: "toggle", key: "showPendingStatusBar" },
           },
         ],
       },
