@@ -15,7 +15,12 @@ import { isolateHistory } from "@codemirror/commands";
 import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
-import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
+import {
+  REVIEW_VIEW_TYPE,
+  ConfirmActionModal,
+  ReviewPanelView,
+  type PanelHost,
+} from "./panel/view";
 import { OVERVIEW_VIEW_TYPE, PendingOverviewView, type OverviewHost } from "./panel/overview";
 import { VaultIndex } from "./vault-index";
 import { describeSummary, totals } from "./pending";
@@ -24,6 +29,7 @@ import {
   rebaseEdits,
   buildAttributionPrefix,
   editsAtCursor,
+  resolveAllChanges,
   type CursorAction,
   type SourceEdit,
 } from "./operations";
@@ -166,6 +172,22 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         return true;
       },
     });
+    for (const [action, name, icon] of [
+      ["accept", "Accept all changes", "check-check"],
+      ["reject", "Reject all changes", "x"],
+    ] as const) {
+      this.addCommand({
+        id: `${action}-all-changes`,
+        name,
+        icon,
+        checkCallback: (checking) => {
+          const file = this.app.workspace.getActiveFile();
+          if (!file || file.extension !== "md") return false;
+          if (!checking) void this.resolveAllInActiveFile(file, action);
+          return true;
+        },
+      });
+    }
 
     // Manual authoring commands (issue #26). No default hotkeys — users bind
     // their own via the Hotkeys pane.
@@ -492,6 +514,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       highlightChangedChars: () => this.settings.highlightChangedChars,
       localAuthorName: () => this.settings.localAuthorName ?? "",
       replyDateStyle: () => this.settings.replyDateStyle,
+      resolveAll: (file, action) => this.resolveAll(file, action, leaf),
     };
     return new ReviewPanelView(leaf, host);
   }
@@ -640,6 +663,65 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     const last = edits[edits.length - 1];
     const shift = edits.reduce((d, e) => d + e.insert.length - (e.to - e.from), 0);
     await this.applyEditsToFile(view.file, edits, { editor, cursorAfter: last.to + shift });
+  }
+
+  // ---- accept / reject all (issue #57) ----
+
+  /** Scoped to the editor's selection when the active editor shows `file` and has one. */
+  private async resolveAllInActiveFile(file: TFile, action: "accept" | "reject"): Promise<void> {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view?.file !== file) return this.resolveAll(file, action);
+    const editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      new Notice("Multiple cursors are not supported; collapse to a single selection.");
+      return;
+    }
+    const from = editor.posToOffset(editor.getCursor("from"));
+    const to = editor.posToOffset(editor.getCursor("to"));
+    return this.resolveAll(file, action, view.leaf, from < to ? { from, to } : undefined);
+  }
+
+  private async resolveAll(
+    file: TFile,
+    action: "accept" | "reject",
+    targetLeaf = this.getActiveLeaf(),
+    range?: { from: number; to: number },
+  ): Promise<void> {
+    // Read fresh: the panel's render-time source can lag the editor.
+    const editor = this.findEditorForFile(file, targetLeaf);
+    const cm = editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
+    const source = cm
+      ? cm.state.doc.toString()
+      : editor ? editor.getValue() : await this.app.vault.read(file);
+    const { edits, threads } = resolveAllChanges(source, parse(source), action, range);
+    const verb = action === "accept" ? "Accept" : "Reject";
+    if (edits.length === 0) {
+      new Notice(range ? "No changes in the selection." : `No changes to ${action}.`);
+      return;
+    }
+    const changes = `${edits.length} ${edits.length === 1 ? "change" : "changes"}`;
+    let message = range
+      ? `${verb} ${changes} in the selection?`
+      : `${verb} ${changes} in "${file.basename}"?`;
+    if (threads > 0) {
+      message += ` This also removes ${threads} comment ${threads === 1 ? "thread" : "threads"} on these suggestions.`;
+    }
+    const confirmed = await new Promise<boolean>((resolve) => {
+      new ConfirmActionModal(
+        this.app,
+        `${verb} all changes`,
+        message,
+        `${verb} ${edits.length}`,
+        resolve,
+      ).open();
+    });
+    if (!confirmed) return;
+    await this.applyEditsToFile(
+      file,
+      edits,
+      { editor: editor ?? undefined, expectedSource: source, requireAll: true },
+      targetLeaf,
+    );
   }
 
   // ---- editor edit application ----

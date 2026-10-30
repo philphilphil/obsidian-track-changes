@@ -42,6 +42,7 @@ Your agent needs to know the mark format. Two starting points:
 - *Open pending changes overview* — the vault-wide list (also the list-checks ribbon icon and the status-bar count)
 - *Rescan vault for pending changes* — the overview keeps itself current from vault events; this forces a full re-read
 - *Finalize for publish* — accept additions, drop deletions and comments, etc.
+- *Accept all changes*, *Reject all changes* — resolve every suggestion in the note (or only those in the selection, if there is one) after a confirmation; comments and highlights stay. Also as *Accept all* / *Reject all* buttons at the top of the review panel
 - *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also under *Track changes* in the editor's right-click menu
 - *Accept change at cursor*, *Reject change at cursor*, *Remove highlight at cursor*, *Delete comment at cursor* — act on the mark the cursor is in; bind hotkeys for fast review. Also under *Track changes* in the right-click menu when the cursor is on a matching mark
 

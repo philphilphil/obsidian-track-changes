@@ -92,6 +92,8 @@ export interface PanelHost {
    * live so settings changes apply at once.
    */
   replyDateStyle(): ReplyDateStyle;
+  /** Accept or reject every change in the file, after a confirmation prompt. */
+  resolveAll(file: TFile, action: "accept" | "reject"): Promise<void>;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -323,6 +325,14 @@ export class ReviewPanelView extends ItemView {
       parts.push(`${counts.highlights} ${counts.highlights === 1 ? "highlight" : "highlights"}`);
     }
     header.createDiv({ cls: "tc-header-counts", text: parts.join(" · ") });
+    if (counts.suggestions > 0) {
+      const actions = header.createDiv({ cls: "tc-header-actions" });
+      for (const [action, text] of [["accept", "Accept all"], ["reject", "Reject all"]] as const) {
+        actions
+          .createEl("button", { text })
+          .addEventListener("click", () => void this.host.resolveAll(file, action));
+      }
+    }
   }
 
   private renderThreadCard(
@@ -810,7 +820,7 @@ export class ReviewPanelView extends ItemView {
   }
 }
 
-class ConfirmActionModal extends Modal {
+export class ConfirmActionModal extends Modal {
   private didResolve = false;
 
   constructor(
