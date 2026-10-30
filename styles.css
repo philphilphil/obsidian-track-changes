@@ -399,6 +399,14 @@ body {
   color: var(--text-muted);
   font-size: 0.85em;
 }
+.tc-header-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tc-header-actions button {
+  font-size: 0.85em;
+}
 
 .tc-card-list {
   display: flex;

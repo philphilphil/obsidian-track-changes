@@ -44,6 +44,7 @@ const {
   editsAtCursor,
   appendComment,
   resolveChange,
+  resolveAllChanges,
   rebaseEdits,
 } = ops;
 
@@ -423,6 +424,41 @@ test("editsAtCursor: deleting a reply on a change keeps the change and root", ()
 test("finalize: a change with its thread finalizes cleanly", () => {
   const src = "a {++b++}{>>why<<} {>>ok<<} c {--d--}{>>r<<} e";
   assert.equal(applyEdits(src, finalizeEdits(parse(src), DEFAULT_FINALIZE)), "a b  c d e");
+});
+
+test("resolveAllChanges: accept/reject every change, leave comments/highlights/aitext alone", () => {
+  const src =
+    'a {++b++} {--c--} {~~d~>e~~} {==h==}{>>note<<} {>>free<<} {=+ai+=} {author="AI" date="2026-01-01"++f++}';
+  const parsed = parse(src);
+  const acc = resolveAllChanges(src, parsed, "accept");
+  assert.equal(acc.edits.length, 4);
+  assert.equal(acc.threads, 0);
+  assert.equal(
+    applyEdits(src, acc.edits),
+    "a b  e {==h==}{>>note<<} {>>free<<} {=+ai+=} f",
+  );
+  assert.equal(
+    applyEdits(src, resolveAllChanges(src, parsed, "reject").edits),
+    "a  c d {==h==}{>>note<<} {>>free<<} {=+ai+=} ",
+  );
+});
+
+test("resolveAllChanges: anchored threads go with their change and are counted", () => {
+  const src = "{>>free<<} x {++a++}{>>why<<}{>>ok<<} y {--b--}";
+  const { edits, threads } = resolveAllChanges(src, parse(src), "accept");
+  assert.equal(threads, 1);
+  assert.equal(applyEdits(src, edits), "{>>free<<} x a y ");
+});
+
+test("resolveAllChanges: range picks only overlapping changes", () => {
+  const src = "{++one++} mid {++two++} end {--three--}";
+  const parsed = parse(src);
+  const at = src.indexOf("two");
+  const { edits } = resolveAllChanges(src, parsed, "accept", { from: at, to: at + 2 });
+  assert.equal(applyEdits(src, edits), "{++one++} mid two end {--three--}");
+  const wide = resolveAllChanges(src, parsed, "reject", { from: 3, to: src.indexOf("end") });
+  assert.equal(applyEdits(src, wide.edits), " mid  end {--three--}");
+  assert.equal(resolveAllChanges(src, parsed, "accept", { from: 9, to: 14 }).edits.length, 0);
 });
 
 console.log("done.");
