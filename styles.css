@@ -233,17 +233,14 @@ body {
   cursor: pointer;
 }
 /* Obsidian parses `{~~old~>new~~}` as `~~strikethrough~~`, which would draw
- * a line across our green `new` half. Making the halves inline-block turns
- * them into atomic inline-level boxes — per the CSS Text Decoration spec,
- * an ancestor's text-decoration does not propagate into atomic inline-level
- * descendants, so the parent .cm-strikethrough's line stops at our box
- * boundary. Scoped to our marks only; real ~~strike~~ elsewhere is
- * unaffected. */
-.tc-sub-old,
-.tc-sub-new,
-.tc-sub-raw-old,
-.tc-sub-raw-new {
-  display: inline-block;
+ * a line across our green `new` half. Lines holding a substitution get
+ * .tc-sub-line, and the strikethrough is switched off there; the old half
+ * keeps its own line-through above. The halves stay inline: inline-block made
+ * a long, wrapped suggestion one atomic box, so clicks and up/down arrows
+ * inside it jumped to its first or last line. Trade-off: a real ~~strike~~ on
+ * the same line as a substitution loses its line in the editor. */
+.tc-sub-line .cm-strikethrough {
+  text-decoration: none;
 }
 .tc-sub-old-changed {
   display: inline;

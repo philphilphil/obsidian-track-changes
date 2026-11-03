@@ -486,5 +486,34 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
     },
   });
 
-  return [field, dragTracker, clickHandler];
+  return [field, substitutionLineField, dragTracker, clickHandler];
 }
+
+// Obsidian parses `{~~old~>new~~}` as `~~strikethrough~~` and its
+// .cm-strikethrough span wraps our marks, so the line would also cross the
+// `new` half. Tag each line holding a substitution; styles.css switches the
+// strikethrough off there, and the `old` half draws its own line-through.
+const substitutionLine = Decoration.line({ class: "tc-sub-line" });
+
+function buildSubstitutionLines(state: EditorState): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  let last = -1;
+  for (const n of parse(state.doc.toString()).nodes) {
+    if (n.kind !== "substitution") continue;
+    const first = state.doc.lineAt(n.from).number;
+    const end = state.doc.lineAt(n.to).number;
+    for (let i = Math.max(first, last + 1); i <= end; i++) {
+      builder.add(state.doc.line(i).from, state.doc.line(i).from, substitutionLine);
+      last = i;
+    }
+  }
+  return builder.finish();
+}
+
+const substitutionLineField = StateField.define<DecorationSet>({
+  create: buildSubstitutionLines,
+  update(deco, tr) {
+    return tr.docChanged ? buildSubstitutionLines(tr.state) : deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
