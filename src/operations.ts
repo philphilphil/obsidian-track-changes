@@ -212,6 +212,29 @@ export function resolveChange(
   ];
 }
 
+/**
+ * Accept or reject every change, each with its anchored thread as in
+ * `resolveChange`. Comments and highlights are left alone. `threads` counts
+ * the anchored threads removed.
+ */
+export function resolveAllChanges(
+  source: string,
+  parsed: ParseResult,
+  action: "accept" | "reject",
+): { edits: SourceEdit[]; threads: number } {
+  const anchoredOn = new Set(
+    parsed.threads.filter((t) => t.changeIndex !== null).map((t) => t.changeIndex),
+  );
+  const edits: SourceEdit[] = [];
+  let threads = 0;
+  parsed.nodes.forEach((n, i) => {
+    if (!isChangeNode(n)) return;
+    if (anchoredOn.has(i)) threads++;
+    edits.push(...resolveChange(source, parsed, n, action));
+  });
+  return { edits, threads };
+}
+
 export type CursorAction = "accept" | "reject" | "remove-highlight" | "delete-comment";
 
 function indexOfKindAt(nodes: CriticNode[], offset: number, kind: CriticNode["kind"]): number {
