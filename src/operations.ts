@@ -213,15 +213,14 @@ export function resolveChange(
 }
 
 /**
- * Accept or reject every change (or, with `range`, every change overlapping
- * it), each with its anchored thread as in `resolveChange`. Comments and
- * highlights are left alone. `threads` counts the anchored threads removed.
+ * Accept or reject every change, each with its anchored thread as in
+ * `resolveChange`. Comments and highlights are left alone. `threads` counts
+ * the anchored threads removed.
  */
 export function resolveAllChanges(
   source: string,
   parsed: ParseResult,
   action: "accept" | "reject",
-  range?: { from: number; to: number },
 ): { edits: SourceEdit[]; threads: number } {
   const anchoredOn = new Set(
     parsed.threads.filter((t) => t.changeIndex !== null).map((t) => t.changeIndex),
@@ -230,7 +229,6 @@ export function resolveAllChanges(
   let threads = 0;
   parsed.nodes.forEach((n, i) => {
     if (!isChangeNode(n)) return;
-    if (range && !(n.from < range.to && n.to > range.from)) return;
     if (anchoredOn.has(i)) threads++;
     edits.push(...resolveChange(source, parsed, n, action));
   });

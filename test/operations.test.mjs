@@ -450,15 +450,4 @@ test("resolveAllChanges: anchored threads go with their change and are counted",
   assert.equal(applyEdits(src, edits), "{>>free<<} x a y ");
 });
 
-test("resolveAllChanges: range picks only overlapping changes", () => {
-  const src = "{++one++} mid {++two++} end {--three--}";
-  const parsed = parse(src);
-  const at = src.indexOf("two");
-  const { edits } = resolveAllChanges(src, parsed, "accept", { from: at, to: at + 2 });
-  assert.equal(applyEdits(src, edits), "{++one++} mid two end {--three--}");
-  const wide = resolveAllChanges(src, parsed, "reject", { from: 3, to: src.indexOf("end") });
-  assert.equal(applyEdits(src, wide.edits), " mid  end {--three--}");
-  assert.equal(resolveAllChanges(src, parsed, "accept", { from: 9, to: 14 }).edits.length, 0);
-});
-
 console.log("done.");

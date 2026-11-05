@@ -183,7 +183,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         checkCallback: (checking) => {
           const file = this.app.workspace.getActiveFile();
           if (!file || file.extension !== "md") return false;
-          if (!checking) void this.resolveAllInActiveFile(file, action);
+          if (!checking) void this.resolveAll(file, action);
           return true;
         },
       });
@@ -667,25 +667,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
 
   // ---- accept / reject all (issue #57) ----
 
-  /** Scoped to the editor's selection when the active editor shows `file` and has one. */
-  private async resolveAllInActiveFile(file: TFile, action: "accept" | "reject"): Promise<void> {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (view?.file !== file) return this.resolveAll(file, action);
-    const editor = view.editor;
-    if (editor.listSelections().length > 1) {
-      new Notice("Multiple cursors are not supported; collapse to a single selection.");
-      return;
-    }
-    const from = editor.posToOffset(editor.getCursor("from"));
-    const to = editor.posToOffset(editor.getCursor("to"));
-    return this.resolveAll(file, action, view.leaf, from < to ? { from, to } : undefined);
-  }
-
   private async resolveAll(
     file: TFile,
     action: "accept" | "reject",
     targetLeaf = this.getActiveLeaf(),
-    range?: { from: number; to: number },
   ): Promise<void> {
     // Read fresh: the panel's render-time source can lag the editor.
     const editor = this.findEditorForFile(file, targetLeaf);
@@ -693,16 +678,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     const source = cm
       ? cm.state.doc.toString()
       : editor ? editor.getValue() : await this.app.vault.read(file);
-    const { edits, threads } = resolveAllChanges(source, parse(source), action, range);
+    const { edits, threads } = resolveAllChanges(source, parse(source), action);
     const verb = action === "accept" ? "Accept" : "Reject";
     if (edits.length === 0) {
-      new Notice(range ? "No changes in the selection." : `No changes to ${action}.`);
+      new Notice(`No changes to ${action}.`);
       return;
     }
     const changes = `${edits.length} ${edits.length === 1 ? "change" : "changes"}`;
-    let message = range
-      ? `${verb} ${changes} in the selection?`
-      : `${verb} ${changes} in "${file.basename}"?`;
+    let message = `${verb} ${changes} in "${file.basename}"?`;
     if (threads > 0) {
       message += ` This also removes ${threads} comment ${threads === 1 ? "thread" : "threads"} on these suggestions.`;
     }
