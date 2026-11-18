@@ -133,6 +133,11 @@ export class ReviewPanelView extends ItemView {
         }
       }),
     );
+    // Opening a note into the already-active empty leaf (all tabs closed)
+    // fires file-open but no active-leaf-change (#63).
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => this.onActiveFileChanged()),
+    );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (file instanceof TFile && file === this.currentFile) {
