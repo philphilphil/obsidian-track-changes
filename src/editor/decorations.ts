@@ -16,6 +16,9 @@ export interface DecorationCallbacks {
   shouldOpenPanel: (event: MouseEvent) => boolean;
   /** Whether to highlight the changed characters inside a substitution. */
   highlightChangedChars: () => boolean;
+  /** Whether a change (addition/deletion/substitution) shows its raw markup
+   * while the cursor touches it. */
+  revealChangeMarkup: () => boolean;
   /**
    * The local user's display name (settings `localAuthorName`). Used as the
    * author fallback when a mark carries no `author=` prefix and (for comments)
@@ -170,6 +173,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
   const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
   const localAuthor = callbacks.localAuthorName ? callbacks.localAuthorName() : "";
+  const revealChanges = callbacks.revealChangeMarkup();
 
   if (!state.field(editorLivePreviewField, false)) {
     // Source Mode: keep raw markup visible, but tint comments (per author) so
@@ -268,7 +272,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     if (n.kind === "addition") {
       const innerFrom = n.innerFrom;
       const innerTo = n.innerTo;
-      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      const inRange = revealChanges && rangeTouchesSelection(state, n.from, n.to);
       // Hide `{<prefix>++` up to the body — covers the prefix for free.
       if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
@@ -283,7 +287,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     } else if (n.kind === "deletion") {
       const innerFrom = n.innerFrom;
       const innerTo = n.innerTo;
-      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      const inRange = revealChanges && rangeTouchesSelection(state, n.from, n.to);
       if (!inRange) builder.add(n.from, innerFrom, hiddenDecoration());
       builder.add(
         innerFrom,
@@ -301,7 +305,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
       const oldTo = n.innerTo;
       const newFrom = oldTo + 2;
       const newTo = n.to - 3;
-      const inRange = rangeTouchesSelection(state, n.from, n.to);
+      const inRange = revealChanges && rangeTouchesSelection(state, n.from, n.to);
       if (!inRange) {
         const charRuns = callbacks.highlightChangedChars()
           ? diffChars(n.oldText, n.newText)

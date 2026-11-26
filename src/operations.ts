@@ -282,6 +282,25 @@ export function editsAtCursor(
   }
 }
 
+/**
+ * Where "jump to next/previous change" puts the cursor: the body start of the
+ * neighbouring change, wrapping around; null when the note has none. The body
+ * start (not `from`) is unambiguous for `findChangeAt` when two changes touch.
+ */
+export function changeJumpTarget(
+  parsed: ParseResult,
+  offset: number,
+  direction: "next" | "previous",
+): number | null {
+  const targets = parsed.nodes.filter(isChangeNode).map((n) => n.innerFrom);
+  if (targets.length === 0) return null;
+  if (direction === "next") return targets.find((t) => t > offset) ?? targets[0];
+  for (let i = targets.length - 1; i >= 0; i--) {
+    if (targets[i] < offset) return targets[i];
+  }
+  return targets[targets.length - 1];
+}
+
 /** Remove a highlight: strip the {==…==} wrapper, keep the inner text. */
 export function removeHighlight(node: CriticNode): SourceEdit {
   if (node.kind !== "highlight") throw new Error("removeHighlight: wrong node kind");

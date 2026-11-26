@@ -42,6 +42,7 @@ const {
   acceptChange,
   rejectChange,
   editsAtCursor,
+  changeJumpTarget,
   appendComment,
   resolveChange,
   resolveAllChanges,
@@ -448,6 +449,26 @@ test("resolveAllChanges: anchored threads go with their change and are counted",
   const { edits, threads } = resolveAllChanges(src, parse(src), "accept");
   assert.equal(threads, 1);
   assert.equal(applyEdits(src, edits), "{>>free<<} x a y ");
+});
+
+test("changeJumpTarget: next/previous change body start, wrapping, skipping non-changes", () => {
+  const src = "a {++x++}{--y--} {==h==}{>>c<<} {~~o~>n~~} {=+ai+=}";
+  const parsed = parse(src);
+  const [add, del, sub] = [src.indexOf("x"), src.indexOf("y"), src.indexOf("o~>")];
+  assert.equal(changeJumpTarget(parsed, 0, "next"), add);
+  assert.equal(changeJumpTarget(parsed, add, "next"), del);
+  assert.equal(changeJumpTarget(parsed, del, "next"), sub);
+  assert.equal(changeJumpTarget(parsed, sub, "next"), add);
+  assert.equal(changeJumpTarget(parsed, add, "previous"), sub);
+  assert.equal(changeJumpTarget(parsed, sub + 2, "previous"), sub);
+  assert.equal(changeJumpTarget(parsed, sub, "previous"), del);
+  assert.equal(findChangeAt(parsed.nodes, del).kind, "deletion");
+  assert.equal(changeJumpTarget(parse("{==h==} {>>c<<}"), 0, "next"), null);
+});
+
+test("changeJumpTarget: lands after a metadata prefix", () => {
+  const src = 'x {author="AI" date="2026-01-01" ++new++}';
+  assert.equal(changeJumpTarget(parse(src), 0, "next"), src.indexOf("new"));
 });
 
 console.log("done.");

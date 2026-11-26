@@ -41,6 +41,10 @@ export interface TrackChangesCriticMarkupSettings {
    * emphasis.
    */
   highlightChangedChars: boolean;
+  /** In Live Preview, show a change's raw CriticMarkup (sigils and
+   *  `author`/`date` prefix) while the cursor touches it. On by default; off
+   *  keeps it rendered so the line doesn't reflow during keyboard review. */
+  revealChangeMarkupAtCursor: boolean;
   /**
    * The local user's display name for authored marks. Two roles, both optional:
    *   1. Display fallback — a mark with no `author=` and no legacy `<Name>:`
@@ -73,6 +77,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   clickMarksToOpenPanel: false,
   confirmBeforeDelete: true,
   highlightChangedChars: true,
+  revealChangeMarkupAtCursor: true,
   localAuthorName: "",
   replyDateStyle: "date",
   panelLocation: "sidebar",
@@ -143,6 +148,11 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
             name: "Highlight changed characters",
             desc: "In a substitution, emphasize the specific characters that changed within the old and new text. Applies to the panel and Live Preview.",
             control: { type: "toggle", key: "highlightChangedChars" },
+          },
+          {
+            name: "Reveal raw markup when the cursor is on a change",
+            desc: "In Live Preview, show the {++…++} source of an addition, deletion or substitution while the cursor touches it. Off keeps it rendered; the raw markup stays visible in Source mode.",
+            control: { type: "toggle", key: "revealChangeMarkupAtCursor" },
           },
           {
             name: "Open review panel in",
@@ -303,7 +313,9 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     await this.plugin.saveSettings();
 
     if (key === "readingShowComments") this.plugin.rerenderReadingViews();
-    else if (key === "highlightChangedChars") this.plugin.refreshCharHighlighting();
+    else if (key === "highlightChangedChars" || key === "revealChangeMarkupAtCursor") {
+      this.plugin.refreshDecorations();
+    }
     else if (key === "markIntensity") this.plugin.applyColors();
   }
 
