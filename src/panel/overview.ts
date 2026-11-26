@@ -52,6 +52,7 @@ export class PendingOverviewView extends ItemView {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.markActiveRow()),
     );
+    this.registerEvent(this.app.workspace.on("file-open", () => this.markActiveRow()));
     this.render();
     if (!this.host.index.ready && !this.host.index.scanning) {
       void this.host.index.scanAll();
