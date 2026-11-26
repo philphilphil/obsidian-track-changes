@@ -35,6 +35,7 @@ Your agent needs to know the mark format. Two starting points:
 - **⌘/Ctrl-click a mark** (or set *Click highlighted text to open in panel*) opens the side panel instead.
 - **Click a panel card** to jump the editor to its chip.
 - **Source Mode** shows raw markup verbatim.
+- With the cursor on a change, Live Preview reveals its raw markup; turn off *Reveal raw markup when the cursor is on a change* to keep it rendered during keyboard review.
 
 ## Commands
 
@@ -45,6 +46,7 @@ Your agent needs to know the mark format. Two starting points:
 - *Accept all changes*, *Reject all changes* — resolve every suggestion in the note after a confirmation; comments and highlights stay. Also as *Accept all* / *Reject all* buttons at the top of the review panel
 - *Insert addition*, *Mark selection as deletion*, *Mark selection for substitution*, *Highlight selection*, *Insert comment* — also under *Track changes* in the editor's right-click menu
 - *Accept change at cursor*, *Reject change at cursor*, *Remove highlight at cursor*, *Delete comment at cursor* — act on the mark the cursor is in; bind hotkeys for fast review. Also under *Track changes* in the right-click menu when the cursor is on a matching mark
+- *Jump to next change*, *Jump to previous change* — move the cursor into the next/previous suggestion (wrapping around), ready for the at-cursor commands
 
 ## Install
 

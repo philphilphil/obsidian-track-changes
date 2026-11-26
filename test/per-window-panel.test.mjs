@@ -247,7 +247,7 @@ await test("both settings refresh paths rebuild every panel", async () => {
   const panels = f.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
   for (const leaf of panels) leaf.refreshes.length = 0;
   f.plugin.makeDecorationExtension = () => ({});
-  f.plugin.refreshCharHighlighting();
+  f.plugin.refreshDecorations();
   f.plugin.refreshAfterSettingsChange();
   for (const leaf of panels) {
     assert.equal(leaf.refreshes.length, 2);

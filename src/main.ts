@@ -28,6 +28,7 @@ import {
   applyEdits,
   rebaseEdits,
   buildAttributionPrefix,
+  changeJumpTarget,
   editsAtCursor,
   resolveAllChanges,
   type CursorAction,
@@ -220,6 +221,22 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       });
     }
 
+    for (const [direction, name, icon] of [
+      ["next", "Jump to next change", "arrow-down"],
+      ["previous", "Jump to previous change", "arrow-up"],
+    ] as const) {
+      this.addCommand({
+        id: `jump-to-${direction}-change`,
+        name,
+        icon,
+        editorCheckCallback: (checking, editor, view) => {
+          if (!(view instanceof MarkdownView) || view.file?.extension !== "md") return false;
+          if (!checking) this.jumpToChange(editor, direction);
+          return true;
+        },
+      });
+    }
+
     // Right-click menu: a "Track changes" submenu with only the actions that
     // would succeed. On a mark (inside or touching) that is the mark's own
     // actions; elsewhere the authoring actions the guards allow.
@@ -395,6 +412,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       replyDateStyle: stored.replyDateStyle === "datetime" ? "datetime" : "date",
       panelLocation: stored.panelLocation === "split" ? "split" : "sidebar",
       showPendingStatusBar: stored.showPendingStatusBar !== false,
+      revealChangeMarkupAtCursor: stored.revealChangeMarkupAtCursor !== false,
       colors,
       markIntensity: Number.isFinite(intensity)
         ? Math.min(MAX_MARK_INTENSITY, Math.max(MIN_MARK_INTENSITY, intensity))
@@ -437,13 +455,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       shouldOpenPanel: (event) =>
         this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      revealChangeMarkup: () => this.settings.revealChangeMarkupAtCursor,
       localAuthorName: () => this.settings.localAuthorName ?? "",
     });
   }
 
-  /** Repaint the per-character substitution highlight in open editors and the
-   * panels after the `highlightChangedChars` setting toggled. */
-  refreshCharHighlighting(): void {
+  /** Rebuild the editor decorations and the panels after a setting they read
+   * (`highlightChangedChars`, `revealChangeMarkupAtCursor`) toggled. */
+  refreshDecorations(): void {
     this.editorExtensions.length = 0;
     this.editorExtensions.push(this.makeDecorationExtension());
     this.app.workspace.updateOptions();
@@ -663,6 +682,27 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     const last = edits[edits.length - 1];
     const shift = edits.reduce((d, e) => d + e.insert.length - (e.to - e.from), 0);
     await this.applyEditsToFile(view.file, edits, { editor, cursorAfter: last.to + shift });
+  }
+
+  private jumpToChange(editor: Editor, direction: "next" | "previous"): void {
+    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    const source = cm ? cm.state.doc.toString() : editor.getValue();
+    const target = changeJumpTarget(
+      parse(source),
+      editor.posToOffset(editor.getCursor("head")),
+      direction,
+    );
+    if (target === null) {
+      new Notice("No changes in this note.");
+      return;
+    }
+    if (cm) {
+      cm.dispatch({ selection: { anchor: target }, scrollIntoView: true });
+    } else {
+      const pos = editor.offsetToPos(target);
+      editor.setCursor(pos);
+      editor.scrollIntoView({ from: pos, to: pos }, true);
+    }
   }
 
   // ---- accept / reject all (issue #57) ----
