@@ -4,7 +4,7 @@
 // inside CM6's view build and break the editor.
 
 import { EditorView, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
-import { RangeSetBuilder, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { RangeSetBuilder, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
 import { editorLivePreviewField } from "obsidian";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
@@ -14,6 +14,10 @@ import { diffChars } from "../diff";
 export interface DecorationCallbacks {
   onOpenPanel: (sourceOffset: number) => void;
   shouldOpenPanel: (event: MouseEvent) => boolean;
+  /** A plain click landed on a mark: select it (highlight + panel card). */
+  onSelectMark?: (sourceOffset: number, view: EditorView) => void;
+  /** A click elsewhere in the text, or Escape: drop the selection. */
+  onClearSelection?: () => void;
   /** Whether to highlight the changed characters inside a substitution. */
   highlightChangedChars: () => boolean;
   /** Whether a change (addition/deletion/substitution) shows its raw markup
@@ -167,6 +171,7 @@ function rangeTouchesSelection(state: EditorState, from: number, to: number): bo
   }
   return false;
 }
+
 
 function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): DecorationSet {
   const source = state.doc.toString();
@@ -427,6 +432,36 @@ function hiddenDecoration(): Decoration {
   return Decoration.replace({});
 }
 
+/** Set (or clear with `null`) the range of the mark the user selected in the panel. */
+export const setActiveRange = StateEffect.define<{ from: number; to: number } | null>();
+
+/**
+ * The persistent "this is the one you picked" cue: a decoration over the
+ * selected mark's range that stays until another mark is picked. It maps
+ * through edits so it keeps following its text.
+ */
+const activeRangeField = StateField.define<{ from: number; to: number } | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setActiveRange)) return e.value;
+    if (!value || !tr.docChanged) return value;
+    const from = tr.changes.mapPos(value.from, 1);
+    const to = tr.changes.mapPos(value.to, -1);
+    return to > from ? { from, to } : null;
+  },
+  provide: (f) =>
+    EditorView.decorations.from(f, (v) =>
+      v
+        ? Decoration.set([Decoration.mark({ class: "tc-active-range" }).range(v.from, v.to)])
+        : Decoration.none,
+    ),
+});
+
+/** The range currently marked as selected in this editor, if any. */
+export function getActiveRange(state: EditorState): { from: number; to: number } | null {
+  return state.field(activeRangeField, false) ?? null;
+}
+
 export function criticDecorationsExtension(callbacks: DecorationCallbacks): Extension {
   // Mirror Obsidian's `livePreviewState.mousedown` gate: while a pointer drag is
   // in progress, skip rebuilding decorations on selection changes. Obsidian's
@@ -473,11 +508,16 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
   });
 
   const clickHandler = EditorView.domEventHandlers({
-    mousedown(event) {
+    mousedown(event, view) {
+      if (event.button !== 0) return false;
       const target = event.target as HTMLElement | null;
       if (!target) return false;
       const panelEl = target.closest("[data-tc-offset]");
-      if (!panelEl) return false;
+      if (!panelEl) {
+        // A click on plain text (not on a mark) drops the selection.
+        if (getActiveRange(view.state)) callbacks.onClearSelection?.();
+        return false;
+      }
       const panelOffset = Number(panelEl.getAttribute("data-tc-offset"));
       if (Number.isNaN(panelOffset)) return false;
       if (callbacks.shouldOpenPanel(event)) {
@@ -486,9 +526,16 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
         callbacks.onOpenPanel(panelOffset);
         return true;
       }
+      // Plain click: select the mark, but let the click through (cursor
+      // placement and editing behave as before).
+      callbacks.onSelectMark?.(panelOffset, view);
+      return false;
+    },
+    keydown(event, view) {
+      if (event.key === "Escape" && getActiveRange(view.state)) callbacks.onClearSelection?.();
       return false;
     },
   });
 
-  return [field, dragTracker, clickHandler];
+  return [field, activeRangeField, dragTracker, clickHandler];
 }
