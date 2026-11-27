@@ -4,7 +4,7 @@
 // inside CM6's view build and break the editor.
 
 import { EditorView, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
-import { RangeSetBuilder, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { RangeSet, RangeSetBuilder, StateField, type EditorState, type Extension } from "@codemirror/state";
 import { editorLivePreviewField } from "obsidian";
 
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
@@ -168,6 +168,39 @@ function rangeTouchesSelection(state: EditorState, from: number, to: number): bo
   return false;
 }
 
+/**
+ * Obsidian pairs the `~~` of `{~~old~>new~~}` as native strikethrough, and its
+ * pairing depends on whitespace around each `~~` (`~~ old`, `new ~~}` …). When
+ * the pairing goes astray the stray strikethrough is not wrapped around our
+ * marks, so the `:has(.tc-sub-new)` CSS cannot catch it and it runs on through
+ * the rest of the paragraph. Tag every line from a substitution to the end of
+ * its paragraph so `styles.css` can switch native strikethrough off there (only
+ * for substitutions whose `~~` touches whitespace); the
+ * `old` half draws its own line-through, so nothing legitimate is lost.
+ */
+function substitutionLineDecorations(state: EditorState, nodes: CriticNode[]): DecorationSet {
+  const doc = state.doc;
+  const starts = new Set<number>();
+  for (const n of nodes) {
+    if (n.kind !== "substitution") continue;
+    // Only a `~~` with whitespace beside it (`~~ old`, `new ~~}`) confuses
+    // Obsidian's pairing; well-formed substitutions never leak, so leave real
+    // `~~strikethrough~~` in their paragraphs alone.
+    if (!/^\s/.test(n.oldText) && !/\s$/.test(n.newText)) continue;
+    // From the mark's line to the end of its paragraph (next blank line).
+    for (let ln = doc.lineAt(n.from).number; ln <= doc.lines; ln++) {
+      const line = doc.line(ln);
+      if (ln > doc.lineAt(n.from).number && line.text.trim() === "") break;
+      starts.add(line.from);
+    }
+  }
+  const b = new RangeSetBuilder<Decoration>();
+  for (const from of [...starts].sort((a, c) => a - c)) {
+    b.add(from, from, Decoration.line({ class: "tc-has-sub" }));
+  }
+  return b.finish();
+}
+
 function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): DecorationSet {
   const source = state.doc.toString();
   const parsed = parse(source);
@@ -213,7 +246,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
         builder.add(newFrom, newTo, Decoration.mark({ class: "tc-sub-raw-new", attributes: authorAttrs() }));
       }
     }
-    return builder.finish();
+    return RangeSet.join([builder.finish(), substitutionLineDecorations(state, parsed.nodes)]);
   }
 
   type Item =
@@ -420,7 +453,7 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
     }
   }
 
-  return builder.finish();
+  return RangeSet.join([builder.finish(), substitutionLineDecorations(state, parsed.nodes)]);
 }
 
 function hiddenDecoration(): Decoration {
