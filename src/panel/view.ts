@@ -94,6 +94,8 @@ export interface PanelHost {
   replyDateStyle(): ReplyDateStyle;
   /** Accept or reject every change in the file, after a confirmation prompt. */
   resolveAll(file: TFile, action: "accept" | "reject"): Promise<void>;
+  /** Drop the "selected" cue in every editor and panel. */
+  clearSelection(): void;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -101,6 +103,8 @@ export class ReviewPanelView extends ItemView {
   private currentFile: TFile | null = null;
   private currentSource = "";
   private rerender = debounce(() => this.refresh(), 200, true);
+  /** `data-tc-card-offset` of the card the user last selected (persistent cue). */
+  private activeCardOffset: number | null = null;
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
   private commentDrafts = new Map<number, string>(); // change.from -> open comment box draft
   private collapsedCards = new Set<number>(); // card-offset values that are collapsed
@@ -159,12 +163,45 @@ export class ReviewPanelView extends ItemView {
       `[data-tc-card-offset="${offset}"], [data-tc-card-anchor="${offset}"]`,
     );
     if (card) {
+      const key = Number(card.getAttribute("data-tc-card-offset"));
+      if (!Number.isNaN(key)) this.setActiveCard(key);
       card.scrollIntoView({ behavior: "smooth", block: "center" });
       card.addClass("tc-card-flash");
       this.registerInterval(
         window.setTimeout(() => card.removeClass("tc-card-flash"), 1200),
       );
     }
+  }
+
+  /** Mark one card as the selected one (or none), and show it. */
+  private setActiveCard(offset: number | null): void {
+    this.activeCardOffset = offset;
+    this.applyActiveCard();
+  }
+
+  /** Public: called by the host when the selection is cleared elsewhere. */
+  clearActive(): void {
+    this.setActiveCard(null);
+  }
+
+  /** Clicking the already-selected card deselects it; returns true when it did. */
+  private toggledOff(offset: number): boolean {
+    if (this.activeCardOffset === offset) {
+      this.host.clearSelection();
+      return true;
+    }
+    this.setActiveCard(offset);
+    return false;
+  }
+
+  private applyActiveCard(): void {
+    this.contentEl
+      .querySelectorAll<HTMLElement>(".tc-card-active")
+      .forEach((el) => el.removeClass("tc-card-active"));
+    if (this.activeCardOffset === null) return;
+    this.contentEl
+      .querySelector<HTMLElement>(`[data-tc-card-offset="${this.activeCardOffset}"]`)
+      ?.addClass("tc-card-active");
   }
 
   getCurrentFile(): TFile | null {
@@ -304,6 +341,7 @@ export class ReviewPanelView extends ItemView {
         if (!anchored.has(i)) this.renderHighlightCard(list, file, source, n);
       }
     }
+    this.applyActiveCard();
   }
 
   private renderHeader(
@@ -369,6 +407,7 @@ export class ReviewPanelView extends ItemView {
       if (hasSelectionIn(card)) return;
       // With an anchor, jump to the commented span rather than the chip.
       const from = anchor ? anchor.from : thread.from;
+      if (this.toggledOff(thread.from)) return;
       this.host.revealOffset(file, from, thread.to - from, true);
     });
 
@@ -527,6 +566,7 @@ export class ReviewPanelView extends ItemView {
       const target = e.target as HTMLElement;
       if (target.closest(".tc-reply, button, textarea, input")) return;
       if (hasSelectionIn(card)) return;
+      if (this.toggledOff(n.from)) return;
       if (thread) this.host.revealOffset(file, n.from, thread.to - n.from, true);
       else this.host.revealOffset(file, n.from, n.to - n.from);
     });
@@ -641,6 +681,7 @@ export class ReviewPanelView extends ItemView {
       }
       if (target.closest("button")) return;
       if (hasSelectionIn(card)) return;
+      if (this.toggledOff(n.from)) return;
       this.host.revealOffset(file, n.from, n.to - n.from);
     });
 

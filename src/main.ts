@@ -14,7 +14,7 @@ import { EditorView } from "@codemirror/view";
 import { isolateHistory } from "@codemirror/commands";
 import type { Extension } from "@codemirror/state";
 
-import { criticDecorationsExtension } from "./editor/decorations";
+import { criticDecorationsExtension, getActiveRange, setActiveRange } from "./editor/decorations";
 import {
   REVIEW_VIEW_TYPE,
   ConfirmActionModal,
@@ -452,6 +452,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   private makeDecorationExtension(): Extension {
     return criticDecorationsExtension({
       onOpenPanel: (offset) => this.handleInlineClick(offset),
+      onSelectMark: (offset, cm) => this.selectMarkFromEditor(offset, cm),
+      onClearSelection: () => this.clearSelection(),
       shouldOpenPanel: (event) =>
         this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       highlightChangedChars: () => this.settings.highlightChangedChars,
@@ -534,6 +536,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       localAuthorName: () => this.settings.localAuthorName ?? "",
       replyDateStyle: () => this.settings.replyDateStyle,
       resolveAll: (file, action) => this.resolveAll(file, action, leaf),
+      clearSelection: () => this.clearSelection(),
     };
     return new ReviewPanelView(leaf, host);
   }
@@ -598,7 +601,54 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       await this.openReviewPanel(leaf);
       const view = this.getReviewView(leaf);
       if (file && view) view.focusOffset(file, offset);
+      this.markActiveInEditor(file, offset);
     })();
+  }
+
+  /** Plain click on a mark in the text: select it here and in the panel (if open). */
+  private selectMarkFromEditor(offset: number, cm: EditorView): void {
+    const leaf = this.app.workspace.getLeavesOfType("markdown").find(
+      (l) => l.view instanceof MarkdownView && (l.view.editor as unknown as { cm?: EditorView }).cm === cm,
+    );
+    const file = leaf?.view instanceof FileView ? leaf.view.file : null;
+    if (!file) return;
+    this.markActiveInEditor(file, offset, cm);
+    // Only drive a panel that is already open; a plain click must not open one.
+    this.getReviewView(leaf)?.focusOffset(file, offset);
+  }
+
+  /** Drop the selection cue in every editor and every panel. */
+  private clearSelection(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (!(leaf.view instanceof MarkdownView)) continue;
+      const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
+      if (cm && getActiveRange(cm.state)) cm.dispatch({ effects: setActiveRange.of(null) });
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE)) {
+      if (leaf.view instanceof ReviewPanelView) leaf.view.clearActive();
+    }
+  }
+
+  /** Show the persistent "selected" cue on the mark at `offset` in its editor. */
+  private markActiveInEditor(file: TFile | null, offset: number, cmOverride?: EditorView): void {
+    if (!file) return;
+    const editor = cmOverride ? null : this.findEditorForFile(file);
+    const cm = cmOverride ?? (editor && (editor as unknown as { cm?: EditorView }).cm);
+    if (!cm) return;
+    const parsed = parse(cm.state.doc.toString());
+    const thread = parsed.threads.find((t) => t.from === offset);
+    let range: { from: number; to: number } | null = null;
+    if (thread) {
+      const anchor = thread.anchorIndex !== null ? parsed.nodes[thread.anchorIndex] : null;
+      range = { from: anchor ? anchor.from : thread.from, to: thread.to };
+    } else {
+      const node = parsed.nodes.find((n) => n.from === offset);
+      if (node) {
+        const t = parsed.threads.find((th) => th.changeIndex !== null && parsed.nodes[th.changeIndex] === node);
+        range = { from: node.from, to: t ? t.to : node.to };
+      }
+    }
+    if (range) cm.dispatch({ effects: setActiveRange.of(range) });
   }
 
   // ---- manual authoring (issue #26) ----
@@ -863,6 +913,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   }
 
   private findEditorForFile(file: TFile, targetLeaf = this.getActiveLeaf()): Editor | null {
+    // Several panes may show the same note (side-by-side versions). Prefer the
+    // editor the user was last working in, not merely the first one found.
+    const recent = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit)?.view;
+    if (
+      recent instanceof MarkdownView &&
+      recent.file === file &&
+      recent.containerEl.ownerDocument === targetLeaf?.view.containerEl.ownerDocument
+    ) {
+      return recent.editor;
+    }
     const leaves = this.app.workspace.getLeavesOfType("markdown");
     let fallback: Editor | null = null;
     for (const leaf of leaves) {
@@ -915,7 +975,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     if (cm) {
       cm.dispatch({
         selection: revealMarkup ? { anchor: offset, head: offset + length } : undefined,
-        effects: EditorView.scrollIntoView(offset, { y: "center" }),
+        effects: [
+          EditorView.scrollIntoView(offset, { y: "center" }),
+          setActiveRange.of({ from: offset, to: offset + Math.max(length, 1) }),
+        ],
       });
       if (flashChip) this.flashChipAt(cm, offset, length);
       return;

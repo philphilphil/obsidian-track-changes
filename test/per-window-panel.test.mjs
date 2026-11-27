@@ -52,6 +52,7 @@ function fixture() {
     getActiveViewOfType: (type) =>
       workspace.activeLeaf?.view instanceof type ? workspace.activeLeaf.view : null,
     getLeavesOfType: (type) => leaves.filter((leaf) => leaf.type === type),
+    getMostRecentLeaf: () => null,
     on: (event, fn) => { events.set(event, [...(events.get(event) ?? []), fn]); },
     revealLeaf: async (leaf) => {
       calls.push(["reveal", leaf, leaf.view.getCurrentFile()]);
@@ -176,6 +177,25 @@ await test("source and reveal prefer the panel's editor with cross-window fallba
   assert.equal(panel.host.getCurrentSource(fileA), "main");
   panel.host.revealOffset(fileA, 0, 1);
   assert.equal(scrolled, f.main.view.editor);
+});
+
+await test("reveal targets the pane last worked in when two panes show the same note", async () => {
+  const f = fixture();
+  const first = f.main;
+  const second = f.newLeaf(first.view.containerEl.ownerDocument, fileA);
+  first.view.editor = { getValue: () => "first" };
+  second.view.editor = { getValue: () => "second" };
+  await f.plugin.openReviewPanel(first);
+  const panel = f.plugin.getReviewView(first);
+  let scrolled;
+  f.plugin.scrollEditor = (editor) => { scrolled = editor; };
+  // The user last clicked in the second pane (the panel itself lives in the sidebar).
+  f.workspace.getMostRecentLeaf = () => second;
+  panel.host.revealOffset(fileA, 0, 1);
+  assert.equal(scrolled, second.view.editor);
+  f.workspace.getMostRecentLeaf = () => first;
+  panel.host.revealOffset(fileA, 0, 1);
+  assert.equal(scrolled, first.view.editor);
 });
 
 await test("reveal keeps its target window while waiting for a closed file to open", async () => {

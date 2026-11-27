@@ -425,6 +425,17 @@ body {
 .tc-card-flash {
   box-shadow: 0 0 0 2px var(--interactive-accent);
 }
+/* Persistent "selected" cue: the card the user picked, and its text in the note. */
+.tc-card-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
+}
+.tc-active-range {
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+  background-color: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
 .tc-line-ref {
   font-size: 0.75em;
   color: var(--text-muted);
