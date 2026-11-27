@@ -10,6 +10,7 @@ import { editorLivePreviewField } from "obsidian";
 import { parse, type CriticNode, type CommentNode, type Thread } from "../parser";
 import { authorHueIndex } from "../authors";
 import { diffChars } from "../diff";
+import { nativeMarkupLeakGuard } from "./native-leak";
 
 export interface DecorationCallbacks {
   onOpenPanel: (sourceOffset: number) => void;
@@ -490,5 +491,5 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
     },
   });
 
-  return [field, dragTracker, clickHandler];
+  return [field, dragTracker, clickHandler, nativeMarkupLeakGuard];
 }

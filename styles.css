@@ -190,6 +190,18 @@ body {
 .tc-highlight {
   background: var(--tc-highlight-bg);
 }
+/* Obsidian reads the `==` / `~~` sigils of CriticMarkup as its own highlight /
+   strikethrough syntax and can fail to close them, styling the rest of the
+   paragraph. Its span wraps ours, so switch the parent's styling off where
+   src/editor/native-leak.ts tagged a stray run. The highlight selector
+   out-specifies Obsidian's `.cm-s-obsidian span.cm-highlight`. */
+.cm-s-obsidian span.cm-highlight:has(.tc-native-hl-leak),
+.cm-s-obsidian span.cm-formatting-highlight:has(.tc-native-hl-leak) {
+  background-color: transparent;
+}
+.cm-strikethrough:has(.tc-native-strike-leak) {
+  text-decoration-line: none;
+}
 /* AI-added text: a two-colour "sunset" gradient on the glyphs (orange → violet).
    A solid fallback colour keeps the text visible if background-clip is
    unsupported; the @supports rule only goes transparent where the clip works. */
