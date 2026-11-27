@@ -242,6 +242,13 @@ body {
 .tc-sub-raw-new .cm-strikethrough {
   text-decoration-line: none;
 }
+/* Safety net: a `~~` with whitespace next to it (`~~ old`, `new ~~}`) makes
+ * Obsidian pair the native strikethrough wrongly, and the stray line then
+ * runs to the end of the paragraph. Switch native strikethrough off on every
+ * line of a paragraph that holds a substitution (the old half has its own). */
+.cm-line.tc-has-sub .cm-strikethrough {
+  text-decoration-line: none;
+}
 .tc-sub-old-changed {
   background: var(--tc-sub-old-changed-bg);
 }
